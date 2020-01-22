@@ -22,6 +22,7 @@ pub struct Key {
 pub struct PublicKey(sign::PublicKey);
 
 /// A signature produced by `Key::sign`
+#[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 pub struct Signature(sign::Signature);
 
 // Key
