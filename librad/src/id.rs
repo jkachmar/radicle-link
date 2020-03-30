@@ -10,6 +10,11 @@ use std::{
 
 pub mod data;
 
+pub mod entity;
+pub mod project;
+pub mod uri;
+pub mod user;
+
 #[derive(Debug, Fail)]
 pub enum Error {
     #[fail(display = "Serialization failed")]
@@ -18,8 +23,8 @@ pub enum Error {
     #[fail(display = "Invalid UTF8")]
     InvalidUtf8(std::string::FromUtf8Error),
 
-    #[fail(display = "Invalid hex")]
-    InvalidHex(String),
+    #[fail(display = "Invalid buffer encoding")]
+    InvalidBufferEncoding(String),
 
     #[fail(display = "Invalid hash")]
     InvalidHash(String),
@@ -38,6 +43,9 @@ pub enum Error {
 
     #[fail(display = "User key not present")]
     UserKeyNotPresent(RadicleUri, PublicKey),
+
+    #[fail(display = "User key not present")]
+    UserKeyNotPresentWIP(uri::RadicleUri, PublicKey),
 
     #[fail(display = "Signature missing")]
     SignatureMissing,
@@ -100,7 +108,7 @@ impl RadicleUri {
         let bytes = bs58::decode(s.as_bytes())
             .with_alphabet(bs58::alphabet::BITCOIN)
             .into_vec()
-            .map_err(|_| Error::InvalidHex(s.to_owned()))?;
+            .map_err(|_| Error::InvalidBufferEncoding(s.to_owned()))?;
         let hash = Multihash::from_bytes(bytes).map_err(|_| Error::InvalidHash(s.to_owned()))?;
         Ok(Self { hash })
     }
