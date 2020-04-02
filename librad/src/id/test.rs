@@ -1,4 +1,8 @@
-use super::*;
+use super::{
+    entity::*,
+    uri::{RadicleUri, EMPTY_URI},
+    user::{User, UserData},
+};
 use crate::{keys::device::Key, peer::PeerId};
 use lazy_static::lazy_static;
 use sodiumoxide::crypto::sign::ed25519::Seed;
@@ -38,6 +42,18 @@ lazy_static! {
     pub static ref D5: PeerId = peer_from_key(&K5);
 }
 
+fn peer_key_string(peer: &PeerId) -> String {
+    peer.device_key().to_bs58()
+}
+
+lazy_static! {
+    pub static ref D1K: String = peer_key_string(&D1);
+    pub static ref D2K: String = peer_key_string(&D2);
+    pub static ref D3K: String = peer_key_string(&D3);
+    pub static ref D4K: String = peer_key_string(&D4);
+    pub static ref D5K: String = peer_key_string(&D5);
+}
+
 struct EmptyResolver {}
 
 impl Resolver<User> for EmptyResolver {
@@ -53,7 +69,7 @@ struct UserHistory {
 }
 
 impl UserHistory {
-    pub fn new() -> Self {
+    fn new() -> Self {
         Self { revisions: vec![] }
     }
 }
@@ -66,20 +82,26 @@ impl RevisionsResolver<User, <std::vec::Vec<User> as IntoIterator>::IntoIter, Ve
     }
 }
 
-fn new_user(name: &str, devices: &[&'static PeerId]) -> User {
-    User::new(name, devices.into_iter().map(|x| *x))
+fn new_user(name: &str, revision: u64, devices: &[&'static str]) -> Result<User, Error> {
+    let mut data = UserData::default()
+        .set_name(name.to_owned())
+        .set_revision(revision);
+    for s in devices.into_iter() {
+        data = data.add_key((*s).to_owned());
+    }
+    data.build()
 }
 
 #[test]
 fn test_user_signatures() {
     // Keep signing the user while adding devices
-    let mut user = new_user("foo", &[&*D1]);
+    let mut user = new_user("foo", 1, &[&*D1K]).unwrap();
 
     user.sign(&K1, &Signatory::OwnedKey, &EMPTY_RESOLVER)
         .unwrap();
     let sig1 = user.compute_signature(&K1).unwrap();
 
-    user.devices.insert(D2.to_owned());
+    let mut user = user.to_builder().add_key((*D2K).clone()).build().unwrap();
     user.sign(&K2, &Signatory::OwnedKey, &EMPTY_RESOLVER)
         .unwrap();
     let sig2 = user.compute_signature(&K1).unwrap();
@@ -89,13 +111,13 @@ fn test_user_signatures() {
 
 #[test]
 fn test_adding_user_signatures() {
-    let mut user = new_user("foo", &[&*D1]);
+    let user = new_user("foo", 1, &[&*D1K]).unwrap();
 
     // Check that canonical data changes while adding devices
     let data1 = user.canonical_data().unwrap();
-    user.devices.insert(D2.to_owned());
+    let user = user.to_builder().add_key((*D2K).clone()).build().unwrap();
     let data2 = user.canonical_data().unwrap();
-    user.devices.insert(D3.to_owned());
+    let mut user = user.to_builder().add_key((*D3K).clone()).build().unwrap();
     let data3 = user.canonical_data().unwrap();
     assert_ne!(&data1, &data2);
     assert_ne!(&data1, &data3);
@@ -117,14 +139,14 @@ fn test_adding_user_signatures() {
     assert_eq!(&data3, &data6);
 
     // Check signatures collection contents
-    assert_eq!(3, user.signatures.len());
-    assert!(user.signatures.contains_key(&D1.device_key()));
-    assert!(user.signatures.contains_key(&D2.device_key()));
-    assert!(user.signatures.contains_key(&D3.device_key()));
+    assert_eq!(3, user.signatures().len());
+    assert!(user.signatures().contains_key(&D1.device_key()));
+    assert!(user.signatures().contains_key(&D2.device_key()));
+    assert!(user.signatures().contains_key(&D3.device_key()));
 
     // Check signature verification
     let data = user.canonical_data().unwrap();
-    for (k, s) in user.signatures.iter() {
+    for (k, s) in user.signatures().iter() {
         assert!(s.sig.verify(&data, k));
     }
 }
@@ -132,7 +154,7 @@ fn test_adding_user_signatures() {
 #[test]
 fn test_user_verification() {
     // A new user is not valid because no key has signed it
-    let mut user = new_user("foo", &[&*D1]);
+    let mut user = new_user("foo", 1, &[&*D1K]).unwrap();
     assert!(matches!(
         user.check_validity(&EMPTY_RESOLVER),
         Err(Error::SignatureMissing)
@@ -143,9 +165,14 @@ fn test_user_verification() {
         .unwrap();
     assert!(matches!(user.check_validity(&EMPTY_RESOLVER), Ok(())));
     assert!(user.is_valid(&EMPTY_RESOLVER));
-    // Adding maintainers without signatures invalidates it
-    user.devices.insert(D2.to_owned());
-    user.devices.insert(D3.to_owned());
+    // Adding keys without signatures invalidates it
+    let mut user = user
+        .to_data()
+        .clear_hash()
+        .add_key((*D2K).clone())
+        .add_key((*D3K).clone())
+        .build()
+        .unwrap();
     assert!(matches!(user.check_validity(&EMPTY_RESOLVER), Err(_)));
     // Adding the missing signatures does not fix it: D1 signed a previous
     // revision
@@ -163,12 +190,27 @@ fn test_user_verification() {
         Err(Error::SignatureAlreadyPresent(_))
     ));
     // Removing the signature and re adding it fixes the project
-    user.signatures_mut().remove(&K1.public());
+    let mut user = user
+        .to_data()
+        .clear_hash()
+        .map(|mut u| {
+            if let Some(s) = &mut u.signatures {
+                s.remove(&*D1K);
+            }
+            u
+        })
+        .build()
+        .unwrap();
     user.sign(&K1, &Signatory::OwnedKey, &EMPTY_RESOLVER)
         .unwrap();
     assert!(user.is_valid(&EMPTY_RESOLVER));
     // Removing a maintainer invalidates it again
-    user.devices.remove(&D1);
+    let user = user
+        .to_data()
+        .clear_hash()
+        .remove_key(&*D1K)
+        .build()
+        .unwrap();
     assert!(matches!(user.check_validity(&EMPTY_RESOLVER), Err(_)));
 }
 
@@ -182,8 +224,7 @@ fn test_project_update() {
     ));
 
     // History with invalid user is invalid
-    let mut user = new_user("foo", &[&*D1]);
-    user.revision = 1;
+    let user = new_user("foo", 1, &[&*D1K]).unwrap();
     history.revisions.push(user);
 
     assert!(matches!(
@@ -206,11 +247,16 @@ fn test_project_update() {
         Ok(())
     ));
 
-    // Adding one device is ok
-    let mut user = history.revisions.last().unwrap().clone();
-    user.revision = 2;
-    user.devices.insert(D2.to_owned());
-    user.signatures.clear();
+    // Adding one key is ok
+    let mut user = history
+        .revisions
+        .last()
+        .unwrap()
+        .to_builder()
+        .add_key((*D2K).clone())
+        .set_parent(history.revisions.last().unwrap())
+        .build()
+        .unwrap();
     user.sign(&K1, &Signatory::OwnedKey, &EMPTY_RESOLVER)
         .unwrap();
     user.sign(&K2, &Signatory::OwnedKey, &EMPTY_RESOLVER)
@@ -221,13 +267,18 @@ fn test_project_update() {
         Ok(())
     ));
 
-    // Adding two devices starting from one is not ok
+    // Adding two keys starting from one is not ok
     history.revisions.pop();
-    let mut user = history.revisions.last().unwrap().clone();
-    user.revision = 2;
-    user.devices.insert(D2.to_owned());
-    user.devices.insert(D3.to_owned());
-    user.signatures.clear();
+    let mut user = history
+        .revisions
+        .last()
+        .unwrap()
+        .to_builder()
+        .add_key((*D2K).clone())
+        .add_key((*D3K).clone())
+        .set_parent(history.revisions.last().unwrap())
+        .build()
+        .unwrap();
     user.sign(&K1, &Signatory::OwnedKey, &EMPTY_RESOLVER)
         .unwrap();
     user.sign(&K2, &Signatory::OwnedKey, &EMPTY_RESOLVER)
@@ -243,12 +294,17 @@ fn test_project_update() {
         })
     ));
 
-    // Adding two maintainers one by one is ok
+    // Adding two keys one by one is ok
     history.revisions.pop();
-    let mut user = history.revisions.last().unwrap().clone();
-    user.revision = 2;
-    user.devices.insert(D2.to_owned());
-    user.signatures.clear();
+    let mut user = history
+        .revisions
+        .last()
+        .unwrap()
+        .to_builder()
+        .add_key((*D2K).clone())
+        .set_parent(history.revisions.last().unwrap())
+        .build()
+        .unwrap();
     user.sign(&K1, &Signatory::OwnedKey, &EMPTY_RESOLVER)
         .unwrap();
     user.sign(&K2, &Signatory::OwnedKey, &EMPTY_RESOLVER)
@@ -258,10 +314,15 @@ fn test_project_update() {
         User::check_history(&EMPTY_URI, &EMPTY_RESOLVER, &history),
         Ok(())
     ));
-    let mut user = history.revisions.last().unwrap().clone();
-    user.revision = 3;
-    user.devices.insert(D3.to_owned());
-    user.signatures.clear();
+    let mut user = history
+        .revisions
+        .last()
+        .unwrap()
+        .to_builder()
+        .add_key((*D3K).clone())
+        .set_parent(history.revisions.last().unwrap())
+        .build()
+        .unwrap();
     user.sign(&K1, &Signatory::OwnedKey, &EMPTY_RESOLVER)
         .unwrap();
     user.sign(&K2, &Signatory::OwnedKey, &EMPTY_RESOLVER)
@@ -275,13 +336,18 @@ fn test_project_update() {
     ));
 
     // Changing two devices out of three is not ok
-    let mut user = history.revisions.last().unwrap().clone();
-    user.revision = 4;
-    user.devices.remove(&*D2);
-    user.devices.remove(&*D3);
-    user.devices.insert(D4.to_owned());
-    user.devices.insert(D5.to_owned());
-    user.signatures.clear();
+    let mut user = history
+        .revisions
+        .last()
+        .unwrap()
+        .to_builder()
+        .remove_key(&*D2K)
+        .remove_key(&*D3K)
+        .add_key((*D4K).clone())
+        .add_key((*D5K).clone())
+        .set_parent(history.revisions.last().unwrap())
+        .build()
+        .unwrap();
     user.sign(&K1, &Signatory::OwnedKey, &EMPTY_RESOLVER)
         .unwrap();
     user.sign(&K4, &Signatory::OwnedKey, &EMPTY_RESOLVER)
@@ -299,11 +365,16 @@ fn test_project_update() {
 
     // Removing two devices out of three is not ok
     history.revisions.pop();
-    let mut user = history.revisions.last().unwrap().clone();
-    user.revision = 4;
-    user.devices.remove(&*D2);
-    user.devices.remove(&*D3);
-    user.signatures.clear();
+    let mut user = history
+        .revisions
+        .last()
+        .unwrap()
+        .to_builder()
+        .remove_key(&*D2K)
+        .remove_key(&*D3K)
+        .set_parent(history.revisions.last().unwrap())
+        .build()
+        .unwrap();
     user.sign(&K1, &Signatory::OwnedKey, &EMPTY_RESOLVER)
         .unwrap();
     history.revisions.push(user);

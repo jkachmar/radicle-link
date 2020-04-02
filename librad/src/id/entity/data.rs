@@ -1,4 +1,4 @@
-use crate::id::Error;
+use crate::id::entity::{Entity, Error};
 use multihash::{Multihash, Sha2_256};
 use olpc_cjson::CanonicalFormatter;
 use serde::{de::DeserializeOwned, Deserialize, Serialize, Serializer};
@@ -26,6 +26,8 @@ pub struct EntityData<T> {
     pub revision: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hash: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_hash: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub signatures: Option<HashMap<String, EntitySignatureData>>,
@@ -91,5 +93,100 @@ where
 
     pub fn compute_hash(&self) -> Result<Multihash, Error> {
         Ok(Sha2_256::digest(&self.canonical_data()?))
+    }
+
+    pub fn new(name: String, revision: u64) -> Self {
+        let mut result = Self::default();
+        result.name = Some(name);
+        result.revision = Some(revision);
+        result
+    }
+
+    pub fn set_name(mut self, name: String) -> Self {
+        self.name = Some(name);
+        self
+    }
+    pub fn clear_name(mut self) -> Self {
+        self.name = None;
+        self
+    }
+
+    pub fn set_revision(mut self, revision: u64) -> Self {
+        self.revision = Some(revision);
+        self
+    }
+    pub fn clear_revision(mut self) -> Self {
+        self.revision = None;
+        self
+    }
+
+    pub fn clear_hash(mut self) -> Self {
+        self.hash = None;
+        self
+    }
+
+    pub fn set_parent_hash(mut self, parent_hash: String) -> Self {
+        self.parent_hash = Some(parent_hash);
+        self
+    }
+    pub fn clear_parent_hash(mut self) -> Self {
+        self.parent_hash = None;
+        self
+    }
+
+    pub fn set_parent(mut self, parent: &Entity<T>) -> Self {
+        let hash_text = bs58::encode(parent.hash())
+            .with_alphabet(bs58::alphabet::BITCOIN)
+            .into_string();
+        self.parent_hash = Some(hash_text);
+        self.revision = Some(parent.revision() + 1);
+        self
+    }
+
+    pub fn clear_signatures(mut self) -> Self {
+        self.signatures = None;
+        self
+    }
+
+    pub fn add_key(mut self, key: String) -> Self {
+        self.keys.insert(key);
+        self
+    }
+    pub fn remove_key(mut self, key: &str) -> Self {
+        self.keys.remove(key);
+        self
+    }
+    pub fn clear_keys(mut self) -> Self {
+        self.keys.clear();
+        self
+    }
+    pub fn add_keys(mut self, keys: impl IntoIterator<Item = String>) -> Self {
+        for s in keys.into_iter() {
+            self.keys.insert(s);
+        }
+        self
+    }
+
+    pub fn add_certifier(mut self, certifier: String) -> Self {
+        self.certifiers.insert(certifier);
+        self
+    }
+    pub fn remove_certifier(mut self, certifier: &str) -> Self {
+        self.certifiers.remove(certifier);
+        self
+    }
+    pub fn clear_certifiers(mut self) -> Self {
+        self.certifiers.clear();
+        self
+    }
+    pub fn add_certifiers(mut self, certifiers: impl IntoIterator<Item = String>) -> Self {
+        for s in certifiers.into_iter() {
+            self.certifiers.insert(s);
+        }
+        self
+    }
+
+    pub fn map(self, f: impl FnOnce(Self) -> Self) -> Self {
+        f(self)
     }
 }

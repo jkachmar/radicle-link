@@ -1,13 +1,9 @@
-use crate::id::Error;
+use crate::id::entity::Error;
 use multihash::{Multihash, Sha2_256};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RadicleUri {
     hash: Multihash,
-    /* pub repo: Multihash,
-     * pub root: Multihash,
-     * pub branch: String,
-     * pub file: String, */
 }
 
 impl RadicleUri {
@@ -29,8 +25,8 @@ impl RadicleUri {
 }
 
 lazy_static! {
-    static ref EMPTY_HASH: Multihash = Sha2_256::digest(&[]);
-    static ref EMPTY_URI: RadicleUri = RadicleUri::new(EMPTY_HASH.to_owned());
+    pub static ref EMPTY_HASH: Multihash = Sha2_256::digest(&[]);
+    pub static ref EMPTY_URI: RadicleUri = RadicleUri::new(EMPTY_HASH.to_owned());
 }
 
 impl ToString for RadicleUri {

@@ -1,7 +1,7 @@
 pub mod data;
 
 use crate::{
-    id::{uri::RadicleUri, user::User, Error, HistoryVerificationError, UpdateVerificationError},
+    id::{uri::RadicleUri, user::User},
     keys::device::{Key, PublicKey, Signature},
 };
 use multihash::{Multihash, Sha2_256};
@@ -10,6 +10,81 @@ use std::{
     collections::{HashMap, HashSet},
     iter::FromIterator,
 };
+
+#[derive(Debug, Fail)]
+pub enum Error {
+    #[fail(display = "Serialization failed")]
+    SerializationFailed(serde_json::error::Error),
+
+    #[fail(display = "Invalid UTF8")]
+    InvalidUtf8(std::string::FromUtf8Error),
+
+    #[fail(display = "Invalid buffer encoding")]
+    InvalidBufferEncoding(String),
+
+    #[fail(display = "Invalid hash")]
+    InvalidHash(String),
+
+    #[fail(display = "Signature already present")]
+    SignatureAlreadyPresent(PublicKey),
+
+    #[fail(display = "Invalid data")]
+    InvalidData(String),
+
+    #[fail(display = "Key not present")]
+    KeyNotPresent(PublicKey),
+
+    #[fail(display = "User not present")]
+    UserNotPresent(RadicleUri),
+
+    #[fail(display = "User key not present")]
+    UserKeyNotPresent(RadicleUri, PublicKey),
+
+    #[fail(display = "User key not present")]
+    UserKeyNotPresentWIP(RadicleUri, PublicKey),
+
+    #[fail(display = "Signature missing")]
+    SignatureMissing,
+
+    #[fail(display = "Signature decoding failed")]
+    SignatureDecodingFailed,
+
+    #[fail(display = "Signature verification failed")]
+    SignatureVerificationFailed,
+
+    #[fail(display = "Resolution failed")]
+    ResolutionFailed(String),
+}
+
+#[derive(Debug, Fail)]
+pub enum UpdateVerificationError {
+    #[fail(display = "Non monotonic revision")]
+    NonMonotonicRevision,
+
+    #[fail(display = "Wrong parent hash")]
+    WrongParentHash,
+
+    #[fail(display = "Update without previous quorum")]
+    NoPreviousQuorum,
+
+    #[fail(display = "Update without current quorum")]
+    NoCurrentQuorum,
+}
+
+#[derive(Debug, Fail)]
+pub enum HistoryVerificationError {
+    #[fail(display = "Empty history")]
+    EmptyHistory,
+
+    #[fail(display = "Error at revsion")]
+    ErrorAtRevision { revision: u64, error: Error },
+
+    #[fail(display = "Update error")]
+    UpdateError {
+        revision: u64,
+        error: UpdateVerificationError,
+    },
+}
 
 #[derive(Clone, Debug)]
 pub enum Signatory {
@@ -36,10 +111,12 @@ where
 }
 
 // Sized
+#[derive(Clone)]
 pub struct Entity<T> {
     name: String,
     revision: u64,
     hash: Multihash,
+    parent_hash: Option<Multihash>,
     signatures: HashMap<PublicKey, EntitySignature>,
     keys: HashSet<PublicKey>,
     certifiers: HashSet<RadicleUri>,
@@ -67,56 +144,69 @@ where
         if data.keys.len() == 0 {
             return Err(Error::InvalidData("Missing keys".to_owned()));
         }
-        let hash_data = match &data.hash {
-            Some(hash) => hash.to_owned(),
-            _ => {
-                return Err(Error::InvalidData("Missing hash".to_owned()));
-            },
-        };
 
         let mut keys = HashSet::new();
         for k in data.keys.iter() {
-            keys.insert(PublicKey::from_bs58(k).ok_or(Error::InvalidData(k.to_owned()))?);
+            keys.insert(PublicKey::from_bs58(k).ok_or(Error::InvalidData(format!("key: {}", k)))?);
         }
 
         let mut certifiers = HashSet::new();
         for c in data.certifiers.iter() {
-            certifiers
-                .insert(RadicleUri::from_str(c).map_err(|_| Error::InvalidData(c.to_owned()))?);
+            certifiers.insert(
+                RadicleUri::from_str(c)
+                    .map_err(|_| Error::InvalidData(format!("certifier: {}", c)))?,
+            );
         }
 
         let mut signatures = HashMap::new();
         if let Some(s) = &data.signatures {
             for (k, sig) in s.iter() {
-                let key = PublicKey::from_bs58(k).ok_or(Error::InvalidData(k.to_owned()))?;
+                let key = PublicKey::from_bs58(k)
+                    .ok_or(Error::InvalidData(format!("signature key: {}", k)))?;
                 let signature = EntitySignature {
                     by: match &sig.user {
                         Some(uri) => Signatory::User(RadicleUri::from_str(&uri)?),
                         None => Signatory::OwnedKey,
                     },
-                    sig: Signature::from_bs58(k).ok_or(Error::InvalidData(k.to_owned()))?,
+                    sig: Signature::from_bs58(&sig.sig)
+                        .ok_or(Error::InvalidData(format!("signature data: {}", &sig.sig)))?,
                 };
                 signatures.insert(key, signature);
             }
         }
 
-        let claimed_hash = {
-            let bytes = bs58::decode(hash_data.as_bytes())
-                .with_alphabet(bs58::alphabet::BITCOIN)
-                .into_vec()
-                .map_err(|_| Error::InvalidBufferEncoding(hash_data.to_owned()))?;
-            Multihash::from_bytes(bytes).map_err(|_| Error::InvalidHash(hash_data.to_owned()))?
-        };
         let actual_hash = data.compute_hash()?;
-
-        if claimed_hash != actual_hash {
-            return Err(Error::InvalidHash(hash_data.to_owned()));
+        if let Some(s) = &data.hash {
+            let claimed_hash = {
+                let bytes = bs58::decode(s.as_bytes())
+                    .with_alphabet(bs58::alphabet::BITCOIN)
+                    .into_vec()
+                    .map_err(|_| Error::InvalidBufferEncoding(s.to_owned()))?;
+                Multihash::from_bytes(bytes).map_err(|_| Error::InvalidHash(s.to_owned()))?
+            };
+            if claimed_hash != actual_hash {
+                return Err(Error::InvalidHash(s.to_owned()));
+            }
         }
+
+        let parent_hash = match data.parent_hash {
+            Some(s) => {
+                let bytes = bs58::decode(s.as_bytes())
+                    .with_alphabet(bs58::alphabet::BITCOIN)
+                    .into_vec()
+                    .map_err(|_| Error::InvalidBufferEncoding(s.to_owned()))?;
+                let hash =
+                    Multihash::from_bytes(bytes).map_err(|_| Error::InvalidHash(s.to_owned()))?;
+                Some(hash)
+            },
+            None => None,
+        };
 
         Ok(Self {
             name: data.name.unwrap().to_owned(),
             revision: data.revision.unwrap().to_owned(),
             hash: actual_hash,
+            parent_hash,
             keys,
             certifiers,
             signatures,
@@ -150,11 +240,20 @@ where
                     .with_alphabet(bs58::alphabet::BITCOIN)
                     .into_string(),
             ),
+            parent_hash: self.parent_hash.to_owned().map(|h| {
+                bs58::encode(h)
+                    .with_alphabet(bs58::alphabet::BITCOIN)
+                    .into_string()
+            }),
             signatures: Some(signatures),
             keys,
             certifiers,
             info: self.info.to_owned(),
         }
+    }
+
+    pub fn to_builder(&self) -> data::EntityData<T> {
+        self.to_data().clear_hash().clear_signatures()
     }
 
     pub fn hash(&self) -> &Multihash {
