@@ -18,6 +18,7 @@
 pub mod connection;
 pub mod discovery;
 pub mod gossip;
+pub mod node;
 pub mod protocol;
 pub mod quic;
 pub mod tls;

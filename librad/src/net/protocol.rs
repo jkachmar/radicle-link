@@ -39,9 +39,11 @@ use crate::{
     net::{
         connection::{CloseReason, LocalInfo, RemoteInfo, Stream},
         gossip,
+        node,
         quic,
         upgrade::{self, upgrade, with_upgrade, UpgradeRequest, Upgraded, WithUpgrade},
     },
+    paths::Paths,
     peer::PeerId,
 };
 
@@ -91,6 +93,9 @@ pub enum Error {
     #[error("Error handling git upgrade")]
     Git(#[source] io::Error),
 
+    #[error("Error handling node ls upgrade")]
+    Ls(#[from] node::ls::RespondError),
+
     #[error(transparent)]
     Quic(#[from] quic::Error),
 
@@ -111,6 +116,7 @@ impl From<CborCodecError> for Error {
 pub struct Protocol<S, A> {
     gossip: gossip::Protocol<S, A, SocketAddr, quic::RecvStream, quic::SendStream>,
     git: GitServer,
+    ls: node::ls::Fs,
 
     connections: Arc<Mutex<HashMap<PeerId, quic::Connection>>>,
     subscribers: Fanout<ProtocolEvent>,
@@ -122,12 +128,14 @@ where
     for<'de> A: Serialize + Deserialize<'de> + Clone + Debug + Send + Sync + 'static,
 {
     pub fn new(
+        paths: Paths,
         gossip: gossip::Protocol<S, A, SocketAddr, quic::RecvStream, quic::SendStream>,
         git: GitServer,
     ) -> Self {
         Self {
             gossip,
             git,
+            ls: node::ls::Fs::new(paths),
             connections: Arc::new(Mutex::new(HashMap::default())),
             subscribers: Fanout::new(),
         }
@@ -203,6 +211,17 @@ where
                 _ => None,
             }
         })
+    }
+
+    pub async fn ls(
+        &self,
+        remote: &PeerId,
+    ) -> Result<
+        impl futures::Stream<Item = Result<node::ls::Response, node::ls::ResponseError>>,
+        Error,
+    > {
+        let stream = self.open_stream(remote, upgrade::Ls).await?;
+        Ok(node::ls::ListRemote::new(stream))
     }
 
     /// Open a QUIC stream which is upgraded to expect the git protocol
@@ -410,6 +429,8 @@ where
                 .invoke_service(upgraded.await?.into_stream().split())
                 .await
                 .map_err(Error::Git),
+
+            WithUpgrade::Ls(upgraded) => self.ls.respond(upgraded.await?).await.map_err(Error::Ls),
         }
     }
 

@@ -176,7 +176,7 @@ async fn bootstrap<'a>(
         peer.clone(),
     );
 
-    let proto = Protocol::new(gossip, git);
+    let proto = Protocol::new(peer.paths.clone(), gossip, git);
 
     Ok(Bootstrap {
         peer,

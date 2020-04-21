@@ -37,12 +37,14 @@ use crate::{git::transport::GitStream, net::quic};
 
 pub struct Gossip;
 pub struct Git;
+pub struct Ls;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize_repr, Deserialize_repr)]
 #[repr(u8)]
 pub enum UpgradeRequest {
     Gossip = 0,
     Git = 1,
+    Ls = 2,
 }
 
 impl Into<UpgradeRequest> for Gossip {
@@ -54,6 +56,12 @@ impl Into<UpgradeRequest> for Gossip {
 impl Into<UpgradeRequest> for Git {
     fn into(self) -> UpgradeRequest {
         UpgradeRequest::Git
+    }
+}
+
+impl Into<UpgradeRequest> for Ls {
+    fn into(self) -> UpgradeRequest {
+        UpgradeRequest::Ls
     }
 }
 
@@ -203,6 +211,7 @@ pub type SwitchingProtocols<'a, S, U> = BoxFuture<'a, Result<Upgraded<S, U>, Err
 pub enum WithUpgrade<'a, S> {
     Gossip(SwitchingProtocols<'a, S, Gossip>),
     Git(SwitchingProtocols<'a, S, Git>),
+    Ls(SwitchingProtocols<'a, S, Ls>),
 }
 
 pub async fn with_upgrade<'a, S>(incoming: S) -> Result<WithUpgrade<'a, S>, Error>
@@ -230,6 +239,9 @@ where
                     },
                     UpgradeRequest::Git => {
                         WithUpgrade::Git(switching.map(|s| s.map(Upgraded::new)).boxed())
+                    },
+                    UpgradeRequest::Ls => {
+                        WithUpgrade::Ls(switching.map(|s| s.map(Upgraded::new)).boxed())
                     },
                 };
 
