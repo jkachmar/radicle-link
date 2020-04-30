@@ -1,6 +1,13 @@
 use serde::{de::DeserializeOwned, Deserialize, Deserializer, Serialize};
 use std::{collections::BTreeMap, ops::Deref};
+use thiserror::Error;
 use uuid::Uuid;
+
+#[derive(Clone, Debug, Error, PartialEq, Eq)]
+pub enum Error {
+    #[error("Item error ({0})")]
+    ItemError(String),
+}
 
 pub fn msecs_from_epoch() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -396,9 +403,25 @@ pub struct StructItem {
     fields: BTreeMap<TagItemId, ItemCollectionElement<TagItemId>>,
 }
 
+impl StructItem {
+    pub fn field(&self, id: &str) -> Option<&Item> {
+        self.fields
+            .get(&TagItemId(id.to_owned()))
+            .map(|field| field.item())
+    }
+}
+
 #[derive(Clone, PartialEq, Serialize, Deserialize, Debug)]
 pub struct BagItem {
     elements: BTreeMap<UniqueItemId, ItemCollectionElement<UniqueItemId>>,
+}
+
+impl BagItem {
+    pub fn element(&self, id: &Uuid) -> Option<&Item> {
+        self.elements
+            .get(&UniqueItemId(id.to_owned()))
+            .map(|element| element.item())
+    }
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Debug)]
@@ -406,9 +429,26 @@ pub struct SequenceItem {
     elements: Vec<ItemCollectionElement<UniqueItemId>>,
 }
 
+impl SequenceItem {
+    pub fn element(&self, id: &Uuid) -> Option<&Item> {
+        self.elements
+            .iter()
+            .find(|element| &element.id.0 == id)
+            .map(|element| element.item())
+    }
+}
+
 #[derive(Clone, PartialEq, Serialize, Deserialize, Debug)]
 pub struct LogItem {
     elements: BTreeMap<UniqueTimestampItemId, ItemCollectionElement<UniqueTimestampItemId>>,
+}
+
+impl LogItem {
+    pub fn element(&self, timestamp: u64, id: &Uuid) -> Option<&Item> {
+        self.elements
+            .get(&UniqueTimestampItemId(timestamp, id.to_owned()))
+            .map(|element| element.item())
+    }
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Debug)]
