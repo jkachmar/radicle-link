@@ -9,6 +9,8 @@ pub enum Error {
     ItemError(String),
 }
 
+pub type ItemResult = Result<(), Error>;
+
 pub fn msecs_from_epoch() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};
     let from_epoch = SystemTime::now()
@@ -31,6 +33,11 @@ impl BoolItem {
     pub fn new(val: bool) -> Self {
         Self(val)
     }
+
+    pub fn replace(&mut self, val: &Self) -> ItemResult {
+        *self = *val;
+        Ok(())
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Serialize, Deserialize, Debug)]
@@ -46,6 +53,11 @@ impl Deref for FloatItem {
 impl FloatItem {
     pub fn new(val: f64) -> Self {
         Self(val)
+    }
+
+    pub fn replace(&mut self, val: &Self) -> ItemResult {
+        *self = *val;
+        Ok(())
     }
 }
 
@@ -63,6 +75,11 @@ impl IntItem {
     pub fn new(val: i64) -> Self {
         Self(val)
     }
+
+    pub fn replace(&mut self, val: &Self) -> ItemResult {
+        *self = *val;
+        Ok(())
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Debug)]
@@ -78,6 +95,11 @@ impl Deref for UIntItem {
 impl UIntItem {
     pub fn new(val: u64) -> Self {
         Self(val)
+    }
+
+    pub fn replace(&mut self, val: &Self) -> ItemResult {
+        *self = *val;
+        Ok(())
     }
 }
 
@@ -95,6 +117,11 @@ impl StringItem {
     pub fn new(val: String) -> Self {
         Self(val)
     }
+
+    pub fn replace(&mut self, val: &Self) -> ItemResult {
+        self.0 = val.0.clone();
+        Ok(())
+    }
 }
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize, Debug)]
@@ -111,6 +138,11 @@ impl BlobItem {
     pub fn new(val: Vec<u8>) -> Self {
         Self(val)
     }
+
+    pub fn replace(&mut self, val: &Self) -> ItemResult {
+        self.0 = val.0.clone();
+        Ok(())
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Debug)]
@@ -126,6 +158,11 @@ impl Deref for UtcTimestampItem {
 impl UtcTimestampItem {
     pub fn new(val: u64) -> Self {
         Self(val)
+    }
+
+    pub fn replace(&mut self, val: &Self) -> ItemResult {
+        *self = *val;
+        Ok(())
     }
 }
 
@@ -159,7 +196,7 @@ where
     pub fn item(&self) -> &Item {
         &self.item
     }
-    pub fn item_mut(&mut self) -> &mut Item {
+    pub(crate) fn item_mut(&mut self) -> &mut Item {
         &mut self.item
     }
 }
@@ -409,6 +446,13 @@ impl StructItem {
             .get(&TagItemId(id.to_owned()))
             .map(|field| field.item())
     }
+
+    pub fn apply_to_field(&mut self, id: &str, op: &Operation) -> ItemResult {
+        match self.fields.get_mut(&TagItemId(id.to_owned())) {
+            Some(field) => op.apply(field.item_mut()),
+            None => Err(Error::ItemError(String::from("Missing field"))),
+        }
+    }
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Debug)]
@@ -421,6 +465,27 @@ impl BagItem {
         self.elements
             .get(&UniqueItemId(id.to_owned()))
             .map(|element| element.item())
+    }
+
+    pub fn apply_to_element(&mut self, id: &Uuid, op: &Operation) -> ItemResult {
+        match self.elements.get_mut(&UniqueItemId(id.to_owned())) {
+            Some(element) => op.apply(element.item_mut()),
+            None => Err(Error::ItemError(String::from("Missing element"))),
+        }
+    }
+
+    pub fn insert(&mut self, id: Uuid, item: Item) -> ItemResult {
+        let element = ItemCollectionElement::<UniqueItemId> {
+            id: UniqueItemId(id),
+            item,
+        };
+        self.elements.insert(UniqueItemId(id), element);
+        Ok(())
+    }
+
+    pub fn remove(&mut self, id: Uuid) -> ItemResult {
+        self.elements.remove(&UniqueItemId(id));
+        Ok(())
     }
 }
 
@@ -436,6 +501,50 @@ impl SequenceItem {
             .find(|element| &element.id.0 == id)
             .map(|element| element.item())
     }
+
+    fn element_mut(&mut self, id: &Uuid) -> Option<&mut Item> {
+        self.elements
+            .iter_mut()
+            .find(|element| &element.id.0 == id)
+            .map(|element| element.item_mut())
+    }
+
+    pub fn apply_to_element(&mut self, id: &Uuid, op: &Operation) -> ItemResult {
+        match self.element_mut(id) {
+            Some(element) => op.apply(element),
+            None => Err(Error::ItemError(String::from("Missing element"))),
+        }
+    }
+
+    pub fn insert_before(&mut self, anchor: Option<&Uuid>, id: Uuid, item: Item) -> ItemResult {
+        let element = ItemCollectionElement::<UniqueItemId> {
+            id: UniqueItemId(id),
+            item,
+        };
+        let index = match anchor {
+            Some(_) => unimplemented!(),
+            None => self.elements.len(),
+        };
+        self.elements.insert(index, element);
+        Ok(())
+    }
+
+    pub fn insert_after(&mut self, anchor: Option<&Uuid>, id: Uuid, item: Item) -> ItemResult {
+        let element = ItemCollectionElement::<UniqueItemId> {
+            id: UniqueItemId(id),
+            item,
+        };
+        let index = match anchor {
+            Some(_) => unimplemented!(),
+            None => 0,
+        };
+        self.elements.insert(index, element);
+        Ok(())
+    }
+
+    pub fn remove(&mut self, id: Uuid) -> ItemResult {
+        unimplemented!()
+    }
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Debug)]
@@ -448,6 +557,31 @@ impl LogItem {
         self.elements
             .get(&UniqueTimestampItemId(timestamp, id.to_owned()))
             .map(|element| element.item())
+    }
+
+    pub fn apply_to_element(&mut self, timestamp: u64, id: &Uuid, op: &Operation) -> ItemResult {
+        match self
+            .elements
+            .get_mut(&UniqueTimestampItemId(timestamp, id.to_owned()))
+        {
+            Some(element) => op.apply(element.item_mut()),
+            None => Err(Error::ItemError(String::from("Missing element"))),
+        }
+    }
+
+    pub fn insert(&mut self, timestamp: u64, id: Uuid, item: Item) -> ItemResult {
+        let element = ItemCollectionElement::<UniqueTimestampItemId> {
+            id: UniqueTimestampItemId(timestamp, id),
+            item,
+        };
+        self.elements
+            .insert(UniqueTimestampItemId(timestamp, id), element);
+        Ok(())
+    }
+
+    pub fn remove(&mut self, timestamp: u64, id: Uuid) -> ItemResult {
+        self.elements.remove(&UniqueTimestampItemId(timestamp, id));
+        Ok(())
     }
 }
 
@@ -507,4 +641,14 @@ pub enum Operation {
     OnField(OpsOnField),
     OnElement(OpsOnElement),
     OnLogElement(OpsOnLogElement),
+}
+
+pub trait OperationExt {
+    fn apply(&self, item: &mut Item) -> ItemResult;
+}
+
+impl OperationExt for Operation {
+    fn apply(&self, item: &mut Item) -> ItemResult {
+        Ok(())
+    }
 }
