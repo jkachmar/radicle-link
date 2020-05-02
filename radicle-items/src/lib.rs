@@ -7,6 +7,10 @@ use uuid::Uuid;
 pub enum Error {
     #[error("Item error ({0})")]
     ItemError(String),
+    #[error("Unsupported operation ({0})")]
+    UnsupportedOperation(&'static str),
+    #[error("Unsupported operand ({0})")]
+    UnsupportedOperand(&'static str),
 }
 
 pub type ItemResult = Result<(), Error>;
@@ -19,6 +23,11 @@ pub fn msecs_from_epoch() -> u64 {
     from_epoch.as_millis() as u64
 }
 
+pub trait ItemExt {
+    fn kind(&self) -> &'static str;
+    fn apply(&mut self, op: &Operation) -> ItemResult;
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Debug)]
 pub struct BoolItem(bool);
 
@@ -26,6 +35,25 @@ impl Deref for BoolItem {
     type Target = bool;
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl ItemExt for BoolItem {
+    fn kind(&self) -> &'static str {
+        "bool"
+    }
+
+    fn apply(&mut self, op: &Operation) -> ItemResult {
+        match op {
+            Operation::Replace(op) => {
+                let operand = &op.0;
+                match operand {
+                    Item::Bool(val) => self.replace(val),
+                    _ => Err(Error::UnsupportedOperand(operand.kind())),
+                }
+            },
+            _ => Err(Error::UnsupportedOperation(op.kind())),
+        }
     }
 }
 
@@ -50,6 +78,25 @@ impl Deref for FloatItem {
     }
 }
 
+impl ItemExt for FloatItem {
+    fn kind(&self) -> &'static str {
+        "float"
+    }
+
+    fn apply(&mut self, op: &Operation) -> ItemResult {
+        match op {
+            Operation::Replace(op) => {
+                let operand = &op.0;
+                match operand {
+                    Item::Float(val) => self.replace(val),
+                    _ => Err(Error::UnsupportedOperand(operand.kind())),
+                }
+            },
+            _ => Err(Error::UnsupportedOperation(op.kind())),
+        }
+    }
+}
+
 impl FloatItem {
     pub fn new(val: f64) -> Self {
         Self(val)
@@ -68,6 +115,25 @@ impl Deref for IntItem {
     type Target = i64;
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl ItemExt for IntItem {
+    fn kind(&self) -> &'static str {
+        "int"
+    }
+
+    fn apply(&mut self, op: &Operation) -> ItemResult {
+        match op {
+            Operation::Replace(op) => {
+                let operand = &op.0;
+                match operand {
+                    Item::Int(val) => self.replace(val),
+                    _ => Err(Error::UnsupportedOperand(operand.kind())),
+                }
+            },
+            _ => Err(Error::UnsupportedOperation(op.kind())),
+        }
     }
 }
 
@@ -92,6 +158,25 @@ impl Deref for UIntItem {
     }
 }
 
+impl ItemExt for UIntItem {
+    fn kind(&self) -> &'static str {
+        "uint"
+    }
+
+    fn apply(&mut self, op: &Operation) -> ItemResult {
+        match op {
+            Operation::Replace(op) => {
+                let operand = &op.0;
+                match operand {
+                    Item::UInt(val) => self.replace(val),
+                    _ => Err(Error::UnsupportedOperand(operand.kind())),
+                }
+            },
+            _ => Err(Error::UnsupportedOperation(op.kind())),
+        }
+    }
+}
+
 impl UIntItem {
     pub fn new(val: u64) -> Self {
         Self(val)
@@ -110,6 +195,25 @@ impl Deref for StringItem {
     type Target = String;
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl ItemExt for StringItem {
+    fn kind(&self) -> &'static str {
+        "string"
+    }
+
+    fn apply(&mut self, op: &Operation) -> ItemResult {
+        match op {
+            Operation::Replace(op) => {
+                let operand = &op.0;
+                match operand {
+                    Item::String(val) => self.replace(val),
+                    _ => Err(Error::UnsupportedOperand(operand.kind())),
+                }
+            },
+            _ => Err(Error::UnsupportedOperation(op.kind())),
+        }
     }
 }
 
@@ -134,6 +238,25 @@ impl Deref for BlobItem {
     }
 }
 
+impl ItemExt for BlobItem {
+    fn kind(&self) -> &'static str {
+        "blob"
+    }
+
+    fn apply(&mut self, op: &Operation) -> ItemResult {
+        match op {
+            Operation::Replace(op) => {
+                let operand = &op.0;
+                match operand {
+                    Item::Blob(val) => self.replace(val),
+                    _ => Err(Error::UnsupportedOperand(operand.kind())),
+                }
+            },
+            _ => Err(Error::UnsupportedOperation(op.kind())),
+        }
+    }
+}
+
 impl BlobItem {
     pub fn new(val: Vec<u8>) -> Self {
         Self(val)
@@ -152,6 +275,25 @@ impl Deref for UtcTimestampItem {
     type Target = u64;
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl ItemExt for UtcTimestampItem {
+    fn kind(&self) -> &'static str {
+        "timestamp"
+    }
+
+    fn apply(&mut self, op: &Operation) -> ItemResult {
+        match op {
+            Operation::Replace(op) => {
+                let operand = &op.0;
+                match operand {
+                    Item::UtcTimestamp(val) => self.replace(val),
+                    _ => Err(Error::UnsupportedOperand(operand.kind())),
+                }
+            },
+            _ => Err(Error::UnsupportedOperation(op.kind())),
+        }
     }
 }
 
@@ -440,6 +582,24 @@ pub struct StructItem {
     fields: BTreeMap<TagItemId, ItemCollectionElement<TagItemId>>,
 }
 
+impl ItemExt for StructItem {
+    fn kind(&self) -> &'static str {
+        "struct"
+    }
+
+    fn apply(&mut self, op: &Operation) -> ItemResult {
+        match op {
+            Operation::OnField(op) => {
+                for o in op.ops.iter() {
+                    self.apply_to_field(&op.id.0, o)?
+                }
+                Ok(())
+            },
+            _ => Err(Error::UnsupportedOperation(op.kind())),
+        }
+    }
+}
+
 impl StructItem {
     pub fn field(&self, id: &str) -> Option<&Item> {
         self.fields
@@ -449,7 +609,7 @@ impl StructItem {
 
     pub fn apply_to_field(&mut self, id: &str, op: &Operation) -> ItemResult {
         match self.fields.get_mut(&TagItemId(id.to_owned())) {
-            Some(field) => op.apply(field.item_mut()),
+            Some(field) => field.item_mut().apply(op),
             None => Err(Error::ItemError(String::from("Missing field"))),
         }
     }
@@ -458,6 +618,29 @@ impl StructItem {
 #[derive(Clone, PartialEq, Serialize, Deserialize, Debug)]
 pub struct BagItem {
     elements: BTreeMap<UniqueItemId, ItemCollectionElement<UniqueItemId>>,
+}
+
+impl ItemExt for BagItem {
+    fn kind(&self) -> &'static str {
+        "bag"
+    }
+
+    fn apply(&mut self, op: &Operation) -> ItemResult {
+        match op {
+            Operation::Insert(op) => {
+                let element = &op.0;
+                self.insert(element.id.0, element.item.clone())
+            },
+            Operation::Remove(op) => self.remove((op.0).0),
+            Operation::OnElement(op) => {
+                for o in op.ops.iter() {
+                    self.apply_to_element(&op.id.0, o)?
+                }
+                Ok(())
+            },
+            _ => Err(Error::UnsupportedOperation(op.kind())),
+        }
+    }
 }
 
 impl BagItem {
@@ -469,7 +652,7 @@ impl BagItem {
 
     pub fn apply_to_element(&mut self, id: &Uuid, op: &Operation) -> ItemResult {
         match self.elements.get_mut(&UniqueItemId(id.to_owned())) {
-            Some(element) => op.apply(element.item_mut()),
+            Some(element) => element.item_mut().apply(op),
             None => Err(Error::ItemError(String::from("Missing element"))),
         }
     }
@@ -494,6 +677,31 @@ pub struct SequenceItem {
     elements: Vec<ItemCollectionElement<UniqueItemId>>,
 }
 
+impl ItemExt for SequenceItem {
+    fn kind(&self) -> &'static str {
+        "sequence"
+    }
+
+    fn apply(&mut self, op: &Operation) -> ItemResult {
+        match op {
+            Operation::InsertAfter(op) => {
+                self.insert_after(&op.anchor, op.item.id.0, op.item.item.clone())
+            },
+            Operation::InsertBefore(op) => {
+                self.insert_before(&op.anchor, op.item.id.0, op.item.item.clone())
+            },
+            Operation::Remove(op) => self.remove((op.0).0),
+            Operation::OnElement(op) => {
+                for o in op.ops.iter() {
+                    self.apply_to_element(&op.id.0, o)?
+                }
+                Ok(())
+            },
+            _ => Err(Error::UnsupportedOperation(op.kind())),
+        }
+    }
+}
+
 impl SequenceItem {
     pub fn element(&self, id: &Uuid) -> Option<&Item> {
         self.elements
@@ -511,12 +719,17 @@ impl SequenceItem {
 
     pub fn apply_to_element(&mut self, id: &Uuid, op: &Operation) -> ItemResult {
         match self.element_mut(id) {
-            Some(element) => op.apply(element),
+            Some(element) => element.apply(op),
             None => Err(Error::ItemError(String::from("Missing element"))),
         }
     }
 
-    pub fn insert_before(&mut self, anchor: Option<&Uuid>, id: Uuid, item: Item) -> ItemResult {
+    pub fn insert_before(
+        &mut self,
+        anchor: &Option<UniqueItemId>,
+        id: Uuid,
+        item: Item,
+    ) -> ItemResult {
         let element = ItemCollectionElement::<UniqueItemId> {
             id: UniqueItemId(id),
             item,
@@ -529,7 +742,12 @@ impl SequenceItem {
         Ok(())
     }
 
-    pub fn insert_after(&mut self, anchor: Option<&Uuid>, id: Uuid, item: Item) -> ItemResult {
+    pub fn insert_after(
+        &mut self,
+        anchor: &Option<UniqueItemId>,
+        id: Uuid,
+        item: Item,
+    ) -> ItemResult {
         let element = ItemCollectionElement::<UniqueItemId> {
             id: UniqueItemId(id),
             item,
@@ -542,7 +760,7 @@ impl SequenceItem {
         Ok(())
     }
 
-    pub fn remove(&mut self, id: Uuid) -> ItemResult {
+    pub fn remove(&mut self, _id: Uuid) -> ItemResult {
         unimplemented!()
     }
 }
@@ -550,6 +768,28 @@ impl SequenceItem {
 #[derive(Clone, PartialEq, Serialize, Deserialize, Debug)]
 pub struct LogItem {
     elements: BTreeMap<UniqueTimestampItemId, ItemCollectionElement<UniqueTimestampItemId>>,
+}
+
+impl ItemExt for LogItem {
+    fn kind(&self) -> &'static str {
+        "log"
+    }
+
+    fn apply(&mut self, op: &Operation) -> ItemResult {
+        match op {
+            Operation::LogInsert(op) => {
+                let element = &op.0;
+                self.insert(element.id.0, element.id.1, element.item.clone())
+            },
+            Operation::OnLogElement(op) => {
+                for o in op.ops.iter() {
+                    self.apply_to_element(op.id.0, &op.id.1, o)?
+                }
+                Ok(())
+            },
+            _ => Err(Error::UnsupportedOperation(op.kind())),
+        }
+    }
 }
 
 impl LogItem {
@@ -564,7 +804,7 @@ impl LogItem {
             .elements
             .get_mut(&UniqueTimestampItemId(timestamp, id.to_owned()))
         {
-            Some(element) => op.apply(element.item_mut()),
+            Some(element) => element.item_mut().apply(op),
             None => Err(Error::ItemError(String::from("Missing element"))),
         }
     }
@@ -579,6 +819,7 @@ impl LogItem {
         Ok(())
     }
 
+    // FIXME: do we need this?
     pub fn remove(&mut self, timestamp: u64, id: Uuid) -> ItemResult {
         self.elements.remove(&UniqueTimestampItemId(timestamp, id));
         Ok(())
@@ -600,6 +841,28 @@ pub enum Item {
     Log(LogItem),
 }
 
+impl ItemExt for Item {
+    fn kind(&self) -> &'static str {
+        "item"
+    }
+
+    fn apply(&mut self, op: &Operation) -> ItemResult {
+        match self {
+            Item::Bool(item) => item.apply(op),
+            Item::Float(item) => item.apply(op),
+            Item::Int(item) => item.apply(op),
+            Item::UInt(item) => item.apply(op),
+            Item::String(item) => item.apply(op),
+            Item::Blob(item) => item.apply(op),
+            Item::UtcTimestamp(item) => item.apply(op),
+            Item::Struct(item) => item.apply(op),
+            Item::Bag(item) => item.apply(op),
+            Item::Sequence(item) => item.apply(op),
+            Item::Log(item) => item.apply(op),
+        }
+    }
+}
+
 pub struct OpReplace(Item);
 pub struct OpInsert(ItemCollectionElement<UniqueItemId>);
 
@@ -609,11 +872,11 @@ pub struct OpLogInsert(ItemCollectionElement<UniqueTimestampItemId>);
 
 pub struct OpInsertBefore {
     anchor: Option<UniqueItemId>,
-    item: Item,
+    item: ItemCollectionElement<UniqueItemId>,
 }
 pub struct OpInsertAfter {
     anchor: Option<UniqueItemId>,
-    item: Item,
+    item: ItemCollectionElement<UniqueItemId>,
 }
 
 pub struct OpsOnField {
@@ -644,11 +907,11 @@ pub enum Operation {
 }
 
 pub trait OperationExt {
-    fn apply(&self, item: &mut Item) -> ItemResult;
+    fn kind(&self) -> &'static str;
 }
 
 impl OperationExt for Operation {
-    fn apply(&self, item: &mut Item) -> ItemResult {
-        Ok(())
+    fn kind(&self) -> &'static str {
+        "operation"
     }
 }
