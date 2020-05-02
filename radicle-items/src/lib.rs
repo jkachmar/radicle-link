@@ -863,37 +863,48 @@ impl ItemExt for Item {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct OpReplace(Item);
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct OpInsert(ItemCollectionElement<UniqueItemId>);
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct OpRemove(UniqueItemId);
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct OpLogInsert(ItemCollectionElement<UniqueTimestampItemId>);
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct OpInsertBefore {
     anchor: Option<UniqueItemId>,
     item: ItemCollectionElement<UniqueItemId>,
 }
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct OpInsertAfter {
     anchor: Option<UniqueItemId>,
     item: ItemCollectionElement<UniqueItemId>,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct OpsOnField {
     id: TagItemId,
     ops: Vec<Operation>,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct OpsOnElement {
     id: UniqueItemId,
     ops: Vec<Operation>,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct OpsOnLogElement {
     id: UniqueTimestampItemId,
     ops: Vec<Operation>,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub enum Operation {
     Replace(OpReplace),
     Insert(OpInsert),
