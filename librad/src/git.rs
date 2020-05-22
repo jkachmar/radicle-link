@@ -17,6 +17,7 @@
 
 pub mod ext;
 pub mod refs;
+pub mod remotes;
 pub mod repo;
 pub mod server;
 pub mod storage;

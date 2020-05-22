@@ -302,6 +302,12 @@ impl Display for RadUrn {
     }
 }
 
+impl From<&RadUrn> for RadUrn {
+    fn from(urn: &RadUrn) -> Self {
+        urn.clone()
+    }
+}
+
 pub mod rad_urn {
     use super::*;
 

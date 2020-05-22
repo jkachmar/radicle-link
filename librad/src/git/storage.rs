@@ -15,10 +15,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-use std::{
-    ops::Range,
-    sync::{Arc, Mutex, MutexGuard},
-};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use serde::{de::DeserializeOwned, Serialize};
 use thiserror::Error;
@@ -26,9 +23,9 @@ use thiserror::Error;
 use crate::{
     git::{
         ext::{is_not_found_err, Git2ErrorExt, References},
+        remotes::{Remotes, Tracked},
         repo::{self, Repo},
         types::Reference,
-        url::GitUrlRef,
     },
     keys::SecretKey,
     meta::entity::{
@@ -55,17 +52,14 @@ pub enum Error {
 #[derive(Clone)]
 pub struct Storage {
     backend: Arc<Mutex<git2::Repository>>,
+    remotes: Arc<Mutex<Remotes>>,
     pub(crate) key: SecretKey,
 }
 
 impl Storage {
     pub fn open(paths: &Paths, key: SecretKey) -> Result<Self, Error> {
-        git2::Repository::open_bare(paths.git_dir())
-            .map(|backend| Self {
-                backend: Arc::new(Mutex::new(backend)),
-                key,
-            })
-            .map_err(|e| e.into())
+        let repo = git2::Repository::open_bare(paths.git_dir())?;
+        Self::from_repo(paths, key, repo)
     }
 
     pub fn init(paths: &Paths, key: SecretKey) -> Result<Self, Error> {
@@ -76,13 +70,21 @@ impl Storage {
                 .no_reinit(true)
                 .external_template(false),
         )?;
+        Self::from_repo(paths, key, repo)
+    }
 
-        let mut config = repo.config()?;
-        config.set_str("user.name", "radicle")?;
-        config.set_str("user.email", &format!("radicle@{}", PeerId::from(&key)))?;
+    fn from_repo(paths: &Paths, key: SecretKey, repo: git2::Repository) -> Result<Self, Error> {
+        let remotes = Remotes::open(paths)?;
+        {
+            let mut config = repo.config()?;
+            config.set_str("user.name", "radicle")?;
+            config.set_str("user.email", &format!("radicle@{}", PeerId::from(&key)))?;
+            config.set_str("include.path", remotes.path().to_str().unwrap())?;
+        }
 
         Ok(Self {
             backend: Arc::new(Mutex::new(repo)),
+            remotes: Arc::new(Mutex::new(remotes)),
             key,
         })
     }
@@ -168,71 +170,25 @@ impl Storage {
     }
 
     pub(crate) fn track(&self, urn: &RadUrn, peer: &PeerId) -> Result<(), Error> {
-        let remote_name = tracking_remote_name(urn, peer);
-        let url = GitUrlRef::from_rad_urn(&urn, &PeerId::from(&self.key), peer).to_string();
-
-        tracing::debug!(
-            "Storage::track({}, {}): {} url={}",
-            urn,
-            peer,
-            remote_name,
-            url
-        );
-
-        let _ = self.lock().remote(&remote_name, &url)?;
-        Ok(())
-    }
-
-    pub(crate) fn untrack(&self, urn: &RadUrn, peer: &PeerId) -> Result<(), Error> {
-        let remote_name = tracking_remote_name(urn, peer);
-        // TODO: This removes all remote tracking branches matching the
-        // fetchspec (I suppose). Not sure this is what we want.
-        self.lock()
-            .remote_delete(&remote_name)
+        self.remotes
+            .lock()
+            .unwrap()
+            .add(urn, peer)
             .map_err(|e| e.into())
     }
 
-    pub(crate) fn tracked(&self, urn: &RadUrn) -> Result<Tracked, Error> {
-        let remotes = self.lock().remotes()?;
-        Ok(Tracked::new(remotes, urn))
-    }
-}
-
-/// Iterator over the 1st degree tracked peers of a repo.
-///
-/// Created by the [`Storage::tracked`] method.
-#[must_use = "iterators are lazy and do nothing unless consumed"]
-pub struct Tracked {
-    remotes: git2::string_array::StringArray,
-    range: Range<usize>,
-    prefix: String,
-}
-
-impl Tracked {
-    pub(super) fn new(remotes: git2::string_array::StringArray, filter: &RadUrn) -> Self {
-        let range = 0..remotes.len();
-        let prefix = format!("{}/", filter.id);
-        Self {
-            remotes,
-            range,
-            prefix,
-        }
-    }
-}
-
-impl Iterator for Tracked {
-    type Item = PeerId;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.range
-            .next()
-            .and_then(|i| self.remotes.get(i))
-            .and_then(|name| name.strip_prefix(&self.prefix))
-            .and_then(|peer| peer.parse().ok())
+    pub(crate) fn untrack(&self, urn: &RadUrn, peer: &PeerId) -> Result<(), Error> {
+        self.remotes
+            .lock()
+            .unwrap()
+            .remove(urn, peer)
+            .map_err(|e| e.into())
     }
 
-    fn size_hint(&self) -> (usize, Option<usize>) {
-        self.range.size_hint()
+    pub(crate) fn tracked<'urn>(&self, urn: &'urn RadUrn) -> Result<Tracked<'urn>, Error> {
+        let mut remotes = self.remotes.lock().unwrap();
+        let tracked = remotes.tracked(Some(urn))?;
+        Ok(tracked)
     }
 }
 
@@ -297,59 +253,4 @@ fn blob<'a>(
     let bob = entry.to_object(repo)?.peel_to_blob()?;
 
     Ok(bob)
-}
-
-fn tracking_remote_name(urn: &RadUrn, peer: &PeerId) -> String {
-    format!("{}/{}", urn.id, peer)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    use tempfile::tempdir;
-
-    use crate::{
-        hash::Hash,
-        uri::{self, RadUrn},
-    };
-
-    #[test]
-    fn test_tracking_read_after_write() {
-        let tmp = tempdir().unwrap();
-        let paths = Paths::from_root(tmp).unwrap();
-        let key = SecretKey::new();
-        let store = Storage::init(&paths, key).unwrap();
-
-        let urn = RadUrn {
-            id: Hash::hash(b"lala"),
-            proto: uri::Protocol::Git,
-            path: uri::Path::empty(),
-        };
-        let peer = PeerId::from(SecretKey::new());
-
-        store.track(&urn, &peer).unwrap();
-        let tracked = store.tracked(&urn).unwrap().next();
-        assert_eq!(tracked, Some(peer))
-    }
-
-    #[test]
-    fn test_untrack() {
-        let tmp = tempdir().unwrap();
-        let paths = Paths::from_root(tmp).unwrap();
-        let key = SecretKey::new();
-        let store = Storage::init(&paths, key).unwrap();
-
-        let urn = RadUrn {
-            id: Hash::hash(b"lala"),
-            proto: uri::Protocol::Git,
-            path: uri::Path::empty(),
-        };
-        let peer = PeerId::from(SecretKey::new());
-
-        store.track(&urn, &peer).unwrap();
-        store.untrack(&urn, &peer).unwrap();
-
-        assert!(store.tracked(&urn).unwrap().next().is_none())
-    }
 }

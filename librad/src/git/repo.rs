@@ -27,6 +27,7 @@ use crate::{
     git::{
         ext::{Git2ErrorExt, Oid, References},
         refs::{self, Refs},
+        remotes::{Remotes, Tracked},
         storage::{self, Storage, WithBlob},
         types::{Namespace, Reference, Refspec},
         url::GitUrlRef,
@@ -43,8 +44,6 @@ use crate::{
     peer::PeerId,
     uri::{self, RadUrl, RadUrn},
 };
-
-pub use storage::Tracked;
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -226,7 +225,7 @@ impl Repo {
                 // Track the signer's version of the identity she used for
                 // signing (if any)
                 if let Some(urn) = urn {
-                    self.storage.track(urn, &peer)?;
+                    self.storage.track(&urn, &peer)?;
                 }
 
                 Ok(())
@@ -243,8 +242,7 @@ impl Repo {
     /// To retrieve the transitively tracked peers, use [`rad_refs`] and inspect
     /// the `remotes`.
     pub fn tracked(&mut self) -> Result<Tracked, Error> {
-        let tracked = self.storage.tracked(&self.urn)?;
-        Ok(tracked)
+        self.storage.tracked(&self.urn).map_err(|e| e.into())
     }
 
     /// Read the current [`Refs`] from the repo state
@@ -430,10 +428,16 @@ impl<'a> Locked<'a> {
 
         tracing::debug!(heads = ?heads);
 
-        // Get 1st degree tracked peers from the remotes configured in .git/config
-        let tracked = self.tracked()?;
-        let mut remotes: HashMap<PeerId, HashMap<PeerId, HashSet<PeerId>>> =
-            tracked.map(|peer| (peer, HashMap::new())).collect();
+        // Get 1st degree tracked peers
+        let mut remotes: HashMap<PeerId, HashMap<PeerId, HashSet<PeerId>>> = {
+            let mut remotes = Remotes::open_path(self.git.path())?;
+            remotes
+                .tracked(self.urn)?
+                .iter()?
+                .filter_map(|peer| peer.ok())
+                .map(|peer| (peer, HashMap::new()))
+                .collect()
+        };
 
         tracing::debug!(remotes.bare = ?remotes);
 
@@ -455,11 +459,6 @@ impl<'a> Locked<'a> {
             heads,
             remotes: remotes.into(),
         })
-    }
-
-    fn tracked(&self) -> Result<Tracked, Error> {
-        let remotes = self.git.remotes()?;
-        Ok(Tracked::new(remotes, &self.urn))
     }
 
     fn rad_refs_of(&self, peer: PeerId) -> Result<Refs, Error> {
