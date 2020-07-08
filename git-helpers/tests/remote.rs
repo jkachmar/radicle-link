@@ -50,6 +50,9 @@ const PASSPHRASE: &str = "123";
 fn smoke() {
     logging::init();
 
+    env::set_var("GIT_TRACE", "2");
+    env::set_var("GIT_TRACE_SETUP", "1");
+
     let rad_dir = tempdir().unwrap();
     let rad_paths = Paths::from_root(rad_dir.path()).unwrap();
     let key = SecretKey::new();
