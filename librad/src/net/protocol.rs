@@ -207,6 +207,25 @@ where
         self.open_stream(to, upgrade::Git).await
     }
 
+    /// Connect to a peer and establish an upgraded git stream. Returns the
+    /// stream instead of managing it. The caller is responsible for
+    /// dropping it.
+    pub async fn connect_git(
+        &self,
+        endpoint: quic::Endpoint,
+        to: &PeerId,
+        addrs: &[SocketAddr],
+    ) -> Result<Upgraded<quic::Stream, upgrade::Git>, Error> {
+        let (conn, _stream) = connect(&endpoint, to, addrs.to_vec().into_iter())
+            .await
+            .unwrap_or_else(|| todo!());
+
+        let stream = conn.open_stream().await?;
+        let upgraded = upgrade(stream, upgrade::Git).await?;
+
+        Ok(upgraded)
+    }
+
     async fn eval_run(&mut self, endpoint: quic::Endpoint, run: Run<'_, A>) -> Result<(), ()> {
         match run {
             Run::Discovered { peer, addrs } => {
