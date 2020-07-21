@@ -212,6 +212,8 @@ impl SmartSubtransport for RadTransport {
         url: &str,
         service: Service,
     ) -> Result<Box<dyn SmartSubtransportStream>, git2::Error> {
+        tracing::debug!("Creating transport to URL: `{}`", url);
+
         let url: GitUrl = url.parse().map_err(into_git_err)?;
         let stream = self
             .open_stream(&url.local_peer, &url.remote_peer, url.remote_addr)

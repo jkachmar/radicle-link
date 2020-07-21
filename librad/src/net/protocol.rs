@@ -107,6 +107,7 @@ pub enum Error {
 pub struct Protocol<S, A> {
     gossip: gossip::Protocol<S, A, IpAddr, quic::RecvStream, quic::SendStream>,
     git: GitServer,
+    endpoint: quic::Endpoint,
 
     connections: Arc<Mutex<HashMap<PeerId, quic::Connection>>>,
     subscribers: Fanout<ProtocolEvent>,
@@ -119,11 +120,13 @@ where
 {
     pub fn new(
         gossip: gossip::Protocol<S, A, IpAddr, quic::RecvStream, quic::SendStream>,
+        endpoint: quic::Endpoint,
         git: GitServer,
     ) -> Self {
         Self {
             gossip,
             git,
+            endpoint,
             connections: Arc::new(Mutex::new(HashMap::default())),
             subscribers: Fanout::new(),
         }
@@ -225,7 +228,7 @@ where
     ) -> Result<Upgraded<quic::Stream, upgrade::Git>, Error> {
         let (conn, _stream) = connect(&endpoint, to, addrs.to_vec().into_iter())
             .await
-            .unwrap_or_else(|| todo!());
+            .expect("failed to connect");
 
         let stream = conn.open_stream().await?;
         let upgraded = upgrade(stream, upgrade::Git).await?;
@@ -469,13 +472,18 @@ where
         to: &PeerId,
         addr: Option<SocketAddr>,
     ) -> Option<Box<dyn GitStream>> {
-        let span = tracing::trace_span!("GitStreamFactory::open_stream", peer.id = %to);
+        let span =
+            tracing::trace_span!("GitStreamFactory::open_stream", peer.id = %to, peer.addr = ?addr);
         let _guard = span.enter();
 
         match addr {
-            Some(addr) => Some(Box::new(
-                self.connect_git(todo!(), to, todo!()).await.unwrap(),
-            )),
+            Some(addr) => match self.connect_git(self.endpoint.clone(), to, &[addr]).await {
+                Ok(s) => Some(Box::new(s)),
+                Err(e) => {
+                    tracing::warn!("Error opening git stream: {}", e);
+                    None
+                },
+            },
             None => match self.open_git(to).await {
                 Ok(s) => Some(Box::new(s)),
                 Err(e) => {
@@ -530,6 +538,7 @@ where
                 match endpoint.connect(peer_id, &addr).await {
                     Ok(conn) => Some(conn),
                     Err(e) => {
+                        tracing::debug!("Error: {:?}", e);
                         tracing::warn!("Could not connect to {} at {}: {}", peer_id, addr, e);
                         None
                     },

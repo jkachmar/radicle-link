@@ -621,7 +621,7 @@ impl Storage<WithSigner> {
     where
         T: Serialize + DeserializeOwned + Clone + EntityInfoExt,
     {
-        let span = tracing::info_span!("Storage::clone_repo", url = %url);
+        let span = tracing::info_span!("Storage::clone_repo", url = %url, addr = ?addr);
         let _guard = span.enter();
 
         let remote_peer = url.authority.clone();

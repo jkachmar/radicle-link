@@ -45,7 +45,7 @@ lazy_static! {
 }
 
 pub struct TestPeer {
-    _tmp: TempDir,
+    pub _tmp: TempDir,
     pub peer: Peer,
     pub key: SecretKey,
 }

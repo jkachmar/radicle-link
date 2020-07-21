@@ -146,6 +146,7 @@ impl UploadPack {
             }
         }
 
+        tracing::debug!("Calling: {:?}", git);
         git_tracing(&mut git);
         git.args(&[
             "upload-pack",

@@ -140,7 +140,6 @@ pub struct PeerApi {
     protocol: Protocol<PeerStorage, Gossip>,
     storage: GitStorage<WithSigner>,
     subscribers: Fanout<PeerEvent>,
-    endpoint: quic::Endpoint,
     paths: Paths,
 }
 
@@ -178,7 +177,6 @@ impl TryToOwned for PeerApi {
         Ok(Self {
             protocol: self.protocol.clone(),
             storage,
-            endpoint: self.endpoint.clone(),
             subscribers: self.subscribers.clone(),
             paths: self.paths.clone(),
         })
@@ -205,7 +203,6 @@ pub struct Peer {
     listen_addr: SocketAddr,
 
     storage: GitStorage<WithSigner>,
-    endpoint: quic::Endpoint,
 
     protocol: Protocol<PeerStorage, Gossip>,
     run_loop: RunLoop,
@@ -226,7 +223,6 @@ impl Peer {
         let api = PeerApi {
             storage: self.storage,
             protocol: self.protocol,
-            endpoint: self.endpoint,
             subscribers: self.subscribers,
             paths: self.paths,
         };
@@ -267,11 +263,10 @@ impl Peer {
             peer_storage,
         );
 
-        let protocol = Protocol::new(gossip, git);
+        let protocol = Protocol::new(gossip, endpoint.endpoint.clone(), git);
         git::p2p::transport::register()
             .register_stream_factory(&peer_id, Box::new(protocol.clone()));
 
-        let qep = endpoint.endpoint.clone();
         let run_loop = protocol
             .clone()
             .run(endpoint, config.disco.discover())
@@ -281,7 +276,6 @@ impl Peer {
             paths: config.paths,
             listen_addr,
             storage,
-            endpoint: qep,
             protocol,
             run_loop,
             subscribers,

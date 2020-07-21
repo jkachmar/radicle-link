@@ -30,6 +30,9 @@ use crate::{
     uri::{self, RadUrl, RadUrlRef, RadUrn},
 };
 
+#[cfg(test)]
+mod test;
+
 #[derive(Clone)]
 pub struct GitUrl {
     pub local_peer: PeerId,
@@ -55,10 +58,11 @@ impl GitUrl {
     where
         Addr: Into<Option<SocketAddr>>,
     {
+        let addr = addr.into();
         Self {
             local_peer,
             remote_peer,
-            remote_addr: addr.into(),
+            remote_addr: addr,
             repo: urn.id,
         }
     }
@@ -126,8 +130,17 @@ impl FromStr for GitUrl {
             .expect("we checked for cannot-be-a-base. qed");
 
         let mut iter = host.splitn(2, '.');
-        let remote_peer = iter.next().unwrap().parse()?;
-        let remote_addr = iter.next().map(|addr| addr.parse()).transpose()?;
+        let remote_peer = iter
+            .next()
+            .expect("remote was not present in URL")
+            .parse()?;
+        let remote_addr = iter
+            .next()
+            .map(|addr| {
+                addr.parse()
+                    .map(|ip| SocketAddr::new(ip, url.port().expect("missing port")))
+            })
+            .transpose()?;
 
         let repo = url
             .path_segments()
@@ -214,11 +227,16 @@ impl<'a> Display for GitUrlRef<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(
             f,
-            "{}://{}@{}/{}.git",
+            "{}://{}@{}",
             super::URL_SCHEME,
             self.local_peer,
-            self.remote_peer,
-            self.repo
-        )
+            self.remote_peer
+        )?;
+
+        if let Some(remote_addr) = self.remote_addr {
+            write!(f, ".{}", remote_addr)?;
+        }
+
+        write!(f, "/{}.git", self.repo)
     }
 }
