@@ -20,7 +20,32 @@
 //! The `register` function registers a transport which expects URLs of the
 //! form:
 //!
+//! NOTE: Tells libgit2 to lookup the function pointer global var thing.
+//! This will let libgit2 to call you back with this URL string.
+//! You parse the URL and then you call open_stream(local_peer, remote_peer)
+//! on Protocol.
+//!
+//! FIXME: Need to cram a bit of info, so that instead of looking for an
+//! existing connection, it should establish a new one.
+//! Otherwise, we change the impl of GitStreamFactory such that it always
+//! makes a new connection.
+//!
 //! `rad-p2p://LOCAL_PEER_ID@REMOTE_PEER_ID/PROJECT_ID`
+//!
+//! NOTE: I want: rad-p2p://PROJECT_ID
+//! 1. What I need for git-clone is to find a peer who has this.
+//! 2. Only way is to do `query`.
+//! 3. But if we already did `query`, we might already know who has this!
+//! 4. We should avoid querying if we already know!
+//! 5. Either need: (a) storage to keep track of this, or (b) let the user
+//! choose whether to query or if they have a peer to try.
+//! 6. For this to work, the url should be:
+//!
+//!     rad-p2p://REMOTE_PEER_ID[.SockerAddr]/Project_Id
+//!
+//!     NEED to know PeerId to establish connection.
+//!
+//! NOTE: `Fetcher` is what takes this URL as input
 //!
 //! The local peer id is needed to support testing with multiple peers:
 //! `libgit2` stores custom transports in a `static` variable, so we can
@@ -50,6 +75,7 @@ use std::{
     collections::HashMap,
     fmt::Display,
     io::{self, Read, Write},
+    net::SocketAddr,
     sync::{Arc, Once, RwLock},
 };
 
@@ -67,6 +93,11 @@ use crate::{
 
 type Factories = Arc<RwLock<HashMap<PeerId, Box<dyn GitStreamFactory>>>>;
 
+// Global stream lookup. It's a hashmap, because we need to support multiple
+// peers. One stream per peer. This is ONLY A HASHMAP FOR TESTS. OTHERWISE YOU
+// NEED TO REGISTER ONLY ONCE - This happens under the hood.
+//
+// NOTE: Check the can_clone test.
 lazy_static! {
     static ref FACTORIES: Factories = Arc::new(RwLock::new(HashMap::with_capacity(1)));
 }
@@ -79,9 +110,20 @@ pub trait GitStream: AsyncRead + AsyncWrite + Unpin + Send {}
 
 /// Trait for types which can provide a [`GitStream`] over which we can send
 /// / receive bytes to / from the specified peer.
+///
+/// NOTE: Getting libgit2 to use our p2p stack as the transport.
+///
+/// If you register a transport with the same scheme twice, you get an error.
+/// Therefore we must register a global thing that when called, it looks up
+/// the stream from somewhere.
 #[async_trait]
 pub trait GitStreamFactory: Sync + Send {
-    async fn open_stream(&self, to: &PeerId) -> Option<Box<dyn GitStream>>;
+    // This is how we open a stream that libgit2 is happy with.
+    async fn open_stream(
+        &self,
+        to: &PeerId,
+        addr: Option<SocketAddr>,
+    ) -> Option<Box<dyn GitStream>>;
 }
 
 /// Register the `rad-p2p://` transport with `libgit`.
@@ -94,6 +136,11 @@ pub trait GitStreamFactory: Sync + Send {
 ///
 /// The first call to this function MUST, however, be externally synchronised
 /// with all other calls to `libgit`.
+///
+/// Call `register` anytime. Not only once. Makes sure it registers the
+/// transport thing once, and returns the transport struct which contains the
+/// global variable, ie. the Git stream. You can use this to register your
+/// peer-id + the stream.
 pub fn register() -> RadTransport {
     static INIT: Once = Once::new();
 
@@ -129,16 +176,37 @@ impl RadTransport {
         self.fac.write().unwrap().insert(peer_id.clone(), fac);
     }
 
-    fn open_stream(&self, from: &PeerId, to: &PeerId) -> Option<Box<dyn GitStream>> {
+    fn open_stream<Addr>(
+        &self,
+        from: &PeerId,
+        to: &PeerId,
+        addr: Addr,
+    ) -> Option<Box<dyn GitStream>>
+    where
+        Addr: Into<Option<SocketAddr>>,
+    {
         self.fac
             .read()
             .unwrap()
             .get(from)
-            .and_then(|fac| block_on(fac.open_stream(to)))
+            .and_then(|fac| block_on(fac.open_stream(to, addr.into())))
     }
 }
 
 impl SmartSubtransport for RadTransport {
+    // NOTE: Entry point for `git clone`.
+    // We call open_stream with the info in the rad-p2p URL.
+    // But we could also say that `GitStreamFactor::open_stream` also knows
+    // the repo URL.
+    // NOTE: This is the callback libgit2 calls and passes the special URL.
+    //
+    // Ideally when resolving happens, it persists the peer-id -> addr pair
+    // somewhere, so it doesn't have to re-lookup every time.
+    //
+    // If we know the PeerId, we may _ALREADY_ know the Address, so sometimes
+    // you do know the Address, even though it wouldn't be cached here!
+    //
+    // So for now, stick it at the highest level, eg. PeerApi.
     fn action(
         &self,
         url: &str,
@@ -146,7 +214,7 @@ impl SmartSubtransport for RadTransport {
     ) -> Result<Box<dyn SmartSubtransportStream>, git2::Error> {
         let url: GitUrl = url.parse().map_err(into_git_err)?;
         let stream = self
-            .open_stream(&url.local_peer, &url.remote_peer)
+            .open_stream(&url.local_peer, &url.remote_peer, url.addr)
             .ok_or_else(|| into_git_err(format!("No connection to {}", url.remote_peer)))?;
 
         Ok(Box::new(RadSubTransport {

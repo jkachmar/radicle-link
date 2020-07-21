@@ -23,6 +23,7 @@ use std::{
 };
 
 use futures::future::{BoxFuture, FutureExt};
+use serde::{de::DeserializeOwned, Serialize};
 use thiserror::Error;
 
 use crate::{
@@ -33,6 +34,7 @@ use crate::{
     },
     internal::{borrow::TryToOwned, channel::Fanout},
     keys::SecretKey,
+    meta::entity::data::EntityInfoExt,
     net::{
         connection::LocalInfo,
         discovery::Discovery,
@@ -157,13 +159,27 @@ impl PeerApi {
         self.storage.peer_id()
     }
 
-    pub async fn connect_git(
+    pub async fn clone_repo<T>(
         &self,
-        endpoint: quic::Endpoint,
+        urn: RadUrn,
         to: &PeerId,
         addrs: &[SocketAddr],
-    ) -> Result<Upgraded<quic::Stream, upgrade::Git>, Error> {
-        todo!()
+    ) -> Result<git::repo::Repo<'_, WithSigner>, ()>
+    where
+        T: Serialize + DeserializeOwned + Clone + EntityInfoExt,
+    {
+        let stream = self
+            .protocol
+            .connect_git(self.endpoint.clone(), to, addrs)
+            .await
+            .unwrap_or_else(|_| todo!());
+
+        let repo = self
+            .storage()
+            .clone_repo::<T>(urn.into_rad_url(to.clone()))
+            .unwrap_or_else(|_| todo!());
+
+        Ok(repo)
     }
 
     pub fn subscribe(&self) -> impl Future<Output = impl futures::Stream<Item = PeerEvent>> {

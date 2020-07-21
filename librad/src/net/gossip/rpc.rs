@@ -91,6 +91,7 @@ where
     },
 }
 
+// NOTE: Concrete gossip type.
 #[derive(Debug, Clone, PartialEq, Encode, Decode)]
 pub enum Gossip<Addr, Payload>
 where
@@ -100,8 +101,10 @@ where
     #[cbor(array)]
     Have {
         #[n(0)]
+        // Peer that actually has the data.
         origin: PeerInfo<Addr>,
         #[n(1)]
+        // Data it has.
         val: Payload,
     },
 
@@ -109,6 +112,11 @@ where
     #[cbor(array)]
     Want {
         #[n(0)]
+        // Own peer-id, network address etc.
+        // FIXME: Needs some work, atm you only
+        // know the network address you started with.
+        // Need to send the "how I see you", like in
+        // bitcoin.
         origin: PeerInfo<Addr>,
         #[n(1)]
         val: Payload,

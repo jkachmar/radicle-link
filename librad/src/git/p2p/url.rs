@@ -17,6 +17,7 @@
 
 use std::{
     fmt::{self, Display},
+    net::SocketAddr,
     str::FromStr,
 };
 
@@ -34,18 +35,31 @@ pub struct GitUrl {
     pub local_peer: PeerId,
     pub remote_peer: PeerId,
     pub repo: Hash,
+    pub addr: Option<SocketAddr>,
 }
 
 impl GitUrl {
-    pub fn from_rad_url(url: RadUrl, local_peer: PeerId) -> Self {
-        Self::from_rad_urn(url.urn, local_peer, url.authority)
+    pub fn from_rad_url<Addr>(url: RadUrl, local_peer: PeerId, addr: Addr) -> Self
+    where
+        Addr: Into<Option<SocketAddr>>,
+    {
+        Self::from_rad_urn(url.urn, local_peer, url.authority, addr)
     }
 
-    pub fn from_rad_urn(urn: RadUrn, local_peer: PeerId, remote_peer: PeerId) -> Self {
+    pub fn from_rad_urn<Addr>(
+        urn: RadUrn,
+        local_peer: PeerId,
+        remote_peer: PeerId,
+        addr: Addr,
+    ) -> Self
+    where
+        Addr: Into<Option<SocketAddr>>,
+    {
         Self {
             local_peer,
             remote_peer,
             repo: urn.id,
+            addr: addr.into(),
         }
     }
 

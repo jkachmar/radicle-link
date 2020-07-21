@@ -39,6 +39,7 @@ where
     #[n(1)]
     pub advertised_info: PeerAdvertisement<Addr>,
     #[n(2)]
+    /// Address you were seen having.
     pub seen_addrs: HashSet<Addr>,
 }
 

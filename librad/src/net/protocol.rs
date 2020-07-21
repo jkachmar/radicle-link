@@ -189,6 +189,9 @@ where
     /// Note that responses will also cause [`gossip::LocalStorage::put`] to be
     /// invoked, i.e. the local storage will be converged towards the
     /// requested state.
+    /// NOTE: `Has` includes the network address of `A`.
+    ///
+    /// NOTE: When we call this, A=ProjectId.
     pub async fn query(&self, want: A) -> impl futures::Stream<Item = gossip::Has<A>> {
         self.gossip.query(want).await;
         self.gossip.subscribe().await.filter_map(|evt| async move {
@@ -200,6 +203,10 @@ where
     }
 
     /// Open a QUIC stream which is upgraded to expect the git protocol
+    ///
+    /// NOTE: Takes only a peer-id, opens a stream which looks in the
+    /// connections you currently have. Not that useful. We need to
+    /// establish a new connection!
     pub async fn open_git(
         &self,
         to: &PeerId,
@@ -351,6 +358,10 @@ where
         if let Some(conn) = self.connections.lock().await.remove(&peer) {
             tracing::info!(msg = "Disconnecting", remote.addr = %conn.remote_addr());
             // FIXME: make this more graceful
+            // FIXME: Remove this?
+            // NOTE: Closing connections closes all the streams.
+            // If we get instructed by Gossip to disconnect, make sure gossip
+            // streams are also closed.
             conn.close(CloseReason::ProtocolDisconnect);
             self.subscribers
                 .emit(ProtocolEvent::Disconnected(peer))
@@ -420,6 +431,15 @@ where
         }
     }
 
+    /// NOTE: Gossip could close a connection in the middle of a git clone.
+    /// So the connection management should be the other way around: gossip
+    /// should just discover peers, but the decision to connect should be at
+    /// the outer level.
+    /// Regardless, it's perfectly fine to establish >1 connection to a peer,
+    /// if this is Git connection.
+    ///
+    /// Bad hack: stick the information you have into the discovery stream.
+    /// That's no good! Because can get disconnected during download!
     async fn open_stream<U>(&self, to: &PeerId, up: U) -> Result<Upgraded<quic::Stream, U>, Error>
     where
         U: Into<UpgradeRequest>,
@@ -437,21 +457,31 @@ where
     }
 }
 
+// NOTE: This is the concrete thing returned by open_stream.
 #[async_trait]
 impl<S, A> GitStreamFactory for Protocol<S, A>
 where
     S: gossip::LocalStorage<Update = A> + 'static,
     for<'de> A: Encode + Decode<'de> + Clone + Debug + Send + Sync + 'static,
 {
-    async fn open_stream(&self, to: &PeerId) -> Option<Box<dyn GitStream>> {
+    async fn open_stream(
+        &self,
+        to: &PeerId,
+        addr: Option<SocketAddr>,
+    ) -> Option<Box<dyn GitStream>> {
         let span = tracing::trace_span!("GitStreamFactory::open_stream", peer.id = %to);
         let _guard = span.enter();
 
-        match self.open_git(to).await {
-            Ok(s) => Some(Box::new(s)),
-            Err(e) => {
-                tracing::warn!("Error opening git stream: {}", e);
-                None
+        match addr {
+            Some(addr) => Some(Box::new(
+                self.connect_git(todo!(), to, todo!()).await.unwrap(),
+            )),
+            None => match self.open_git(to).await {
+                Ok(s) => Some(Box::new(s)),
+                Err(e) => {
+                    tracing::warn!("Error opening git stream: {}", e);
+                    None
+                },
             },
         }
     }
