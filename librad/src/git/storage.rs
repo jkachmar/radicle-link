@@ -22,6 +22,7 @@ use std::{
     io,
     iter,
     marker::PhantomData,
+    net::SocketAddr,
     ops::Range,
     path::Path,
 };
@@ -612,7 +613,11 @@ impl Storage<WithSigner> {
     ///
     /// Note that this method **must** be spawned on a `async` runtime, where
     /// currently the only supported method is [`tokio::task::spawn_blocking`].
-    pub fn clone_repo<T>(&self, url: RadUrl) -> Result<Repo<WithSigner>, Error>
+    pub fn clone_repo<T>(
+        &self,
+        url: RadUrl,
+        addr: Option<SocketAddr>,
+    ) -> Result<Repo<WithSigner>, Error>
     where
         T: Serialize + DeserializeOwned + Clone + EntityInfoExt,
     {
@@ -631,7 +636,7 @@ impl Storage<WithSigner> {
         }
 
         // Fetch the identity first
-        let git_url = GitUrl::from_rad_url(url, self.peer_id.clone());
+        let git_url = GitUrl::from_rad_url(url, self.peer_id.clone(), addr);
         let mut fetcher = Fetcher::new(&self.backend, git_url)?;
         fetcher.prefetch()?;
 
@@ -691,11 +696,11 @@ impl Storage<WithSigner> {
         })
     }
 
-    pub fn fetch_repo(&self, url: RadUrl) -> Result<(), Error> {
+    pub fn fetch_repo(&self, url: RadUrl, addr: Option<SocketAddr>) -> Result<(), Error> {
         let span = tracing::info_span!("Storage::fetch", fetch.url = %url);
         let _guard = span.enter();
 
-        let git_url = GitUrl::from_rad_url(url, self.peer_id.clone());
+        let git_url = GitUrl::from_rad_url(url, self.peer_id.clone(), addr);
         let fetcher = Fetcher::new(&self.backend, git_url)?;
         self.fetch_internal(fetcher)
     }
@@ -836,7 +841,7 @@ impl Storage<WithSigner> {
         }
 
         let remote_name = tracking_remote_name(urn, peer);
-        let url = GitUrlRef::from_rad_urn(&urn, &self.peer_id, peer).to_string();
+        let url = GitUrlRef::from_rad_urn(&urn, &self.peer_id, peer, None).to_string();
 
         tracing::debug!(
             urn = %urn,

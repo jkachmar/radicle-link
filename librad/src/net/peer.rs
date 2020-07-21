@@ -23,7 +23,6 @@ use std::{
 };
 
 use futures::future::{BoxFuture, FutureExt};
-use serde::{de::DeserializeOwned, Serialize};
 use thiserror::Error;
 
 use crate::{
@@ -34,7 +33,6 @@ use crate::{
     },
     internal::{borrow::TryToOwned, channel::Fanout},
     keys::SecretKey,
-    meta::entity::data::EntityInfoExt,
     net::{
         connection::LocalInfo,
         discovery::Discovery,
@@ -157,29 +155,6 @@ impl PeerApi {
 
     pub fn peer_id(&self) -> &PeerId {
         self.storage.peer_id()
-    }
-
-    pub async fn clone_repo<T>(
-        &self,
-        urn: RadUrn,
-        to: &PeerId,
-        addrs: &[SocketAddr],
-    ) -> Result<git::repo::Repo<'_, WithSigner>, ()>
-    where
-        T: Serialize + DeserializeOwned + Clone + EntityInfoExt,
-    {
-        let stream = self
-            .protocol
-            .connect_git(self.endpoint.clone(), to, addrs)
-            .await
-            .unwrap_or_else(|_| todo!());
-
-        let repo = self
-            .storage()
-            .clone_repo::<T>(urn.into_rad_url(to.clone()))
-            .unwrap_or_else(|_| todo!());
-
-        Ok(repo)
     }
 
     pub fn subscribe(&self) -> impl Future<Output = impl futures::Stream<Item = PeerEvent>> {
@@ -340,7 +315,7 @@ impl PeerStorage {
             authority: from.clone(),
             urn,
         };
-        git.fetch_repo(url).map_err(|e| e.into())
+        git.fetch_repo(url, None).map_err(|e| e.into())
     }
 
     /// Determine if we have the given object locally

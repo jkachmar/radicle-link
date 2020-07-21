@@ -214,7 +214,7 @@ impl SmartSubtransport for RadTransport {
     ) -> Result<Box<dyn SmartSubtransportStream>, git2::Error> {
         let url: GitUrl = url.parse().map_err(into_git_err)?;
         let stream = self
-            .open_stream(&url.local_peer, &url.remote_peer, url.addr)
+            .open_stream(&url.local_peer, &url.remote_peer, url.remote_addr)
             .ok_or_else(|| into_git_err(format!("No connection to {}", url.remote_peer)))?;
 
         Ok(Box::new(RadSubTransport {

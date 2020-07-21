@@ -106,10 +106,13 @@ impl<'a> Repo<'a, WithSigner> {
     /// Fetch new refs and objects for this repo from [`PeerId`]
     pub fn fetch(&self, from: &PeerId) -> Result<(), Error> {
         self.storage
-            .fetch_repo(RadUrl {
-                authority: from.clone(),
-                urn: self.urn.clone(),
-            })
+            .fetch_repo(
+                RadUrl {
+                    authority: from.clone(),
+                    urn: self.urn.clone(),
+                },
+                None,
+            )
             .map_err(Error::from)
     }
 
