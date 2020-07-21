@@ -19,7 +19,7 @@
 
 use std::time::Duration;
 
-use futures::{future, stream::StreamExt};
+use futures::{future, stream::StreamExt, FutureExt};
 use tempfile::tempdir;
 
 use librad::{
@@ -36,6 +36,79 @@ use librad_test::{
         testnet,
     },
 };
+
+use librad::{keys::SecretKey, net::peer::PeerApi};
+
+#[tokio::test]
+async fn can_clone_direct() {
+    logging::init();
+
+    let peers = testnet::setup(2).await.unwrap();
+    let addr = peers[1].listen_addr();
+
+    // move out tempdirs, so they don't get dropped
+    let (_tmps, peers_and_keys) = peers
+        .into_iter()
+        .map(|testnet::TestPeer { _tmp, peer, key }| (_tmp, (peer, key)))
+        .unzip::<_, _, Vec<_>, Vec<_>>();
+
+    // unzip2, anyone?
+    let (peers, keys) = peers_and_keys.into_iter().unzip::<_, _, Vec<_>, Vec<_>>();
+
+    let (apis, runners) = peers
+        .into_iter()
+        .map(|peer| peer.accept().unwrap())
+        .unzip::<_, _, Vec<_>, Vec<_>>();
+
+    let mut apis: Vec<(PeerApi, SecretKey)> = apis.into_iter().zip(keys).collect();
+
+    let res = future::select(
+        future::select_all(runners).boxed(),
+        Box::pin(async {
+            let (peer1, peer1_key) = apis.pop().unwrap();
+            let (peer2, _) = apis.pop().unwrap();
+
+            let mut alice = Alice::new(peer1_key.public());
+            let mut radicle = Radicle::new(&alice);
+            {
+                let resolves_to_alice = alice.clone();
+                alice
+                    .sign(&peer1_key, &Signatory::OwnedKey, &resolves_to_alice)
+                    .unwrap();
+                radicle
+                    .sign(
+                        &peer1_key,
+                        &Signatory::User(alice.urn()),
+                        &resolves_to_alice,
+                    )
+                    .unwrap();
+            }
+
+            tokio::task::spawn_blocking(move || {
+                peer1.storage().create_repo(&alice).unwrap();
+                peer1.storage().create_repo(&radicle).unwrap();
+                {
+                    let git2 = peer2.storage();
+                    git2.clone_repo::<ProjectInfo>(
+                        radicle.urn().into_rad_url(peer1.peer_id().clone()),
+                        Some(addr),
+                    )
+                    .unwrap();
+                    // sanity check
+                    git2.open_repo(radicle.urn()).unwrap();
+                }
+            })
+            .await
+            .unwrap();
+        }),
+    )
+    .await;
+
+    match res {
+        future::Either::Left(_) => unreachable!(),
+        future::Either::Right((output, _)) => output,
+    }
+}
 
 #[tokio::test]
 async fn can_clone() {
@@ -67,8 +140,11 @@ async fn can_clone() {
             peer1.storage().create_repo(&radicle).unwrap();
             {
                 let git2 = peer2.storage();
-                git2.clone_repo::<ProjectInfo>(radicle.urn().into_rad_url(peer1.peer_id().clone()))
-                    .unwrap();
+                git2.clone_repo::<ProjectInfo>(
+                    radicle.urn().into_rad_url(peer1.peer_id().clone()),
+                    None,
+                )
+                .unwrap();
                 // sanity check
                 git2.open_repo(radicle.urn()).unwrap();
             }
@@ -114,7 +190,7 @@ async fn fetches_on_gossip_notify() {
             let peer2_storage = peer2_storage.reopen().unwrap();
             let url = radicle.urn().into_rad_url(peer1.peer_id().clone());
             tokio::task::spawn_blocking(move || {
-                peer2_storage.clone_repo::<ProjectInfo>(url).unwrap();
+                peer2_storage.clone_repo::<ProjectInfo>(url, None).unwrap();
             })
             .await
             .unwrap();
