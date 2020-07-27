@@ -59,7 +59,7 @@ impl Endpoint {
         listen_addr: SocketAddr,
     ) -> Result<BoundEndpoint<'a>> {
         let (endpoint, incoming) = make_endpoint(local_key, listen_addr).await?;
-        let endpoint = Endpoint {
+        let endpoint = Self {
             peer_id: PeerId::from(local_key),
             endpoint,
         };
@@ -75,11 +75,13 @@ impl Endpoint {
         peer: &PeerId,
         addr: &SocketAddr,
     ) -> Result<(Connection, BoxStream<'a, Result<Stream>>)> {
+        tracing::info!("attempting to connect");
         let conn = self
             .endpoint
             .connect(addr, peer.as_dns_name().as_ref().into())?
             .await?;
 
+        tracing::info!("successfully creating connection");
         Ok(new_connection(conn))
     }
 }

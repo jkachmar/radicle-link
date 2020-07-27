@@ -43,8 +43,8 @@ use librad::{keys::SecretKey, net::peer::PeerApi};
 async fn can_clone_direct() {
     logging::init();
 
-    let peers = testnet::setup(2).await.unwrap();
-    let addr = peers[1].listen_addr();
+    let peers = testnet::setup_seedless(2).await.unwrap();
+    let addr = peers[0].listen_addr();
 
     // move out tempdirs, so they don't get dropped
     let (_tmps, peers_and_keys) = peers

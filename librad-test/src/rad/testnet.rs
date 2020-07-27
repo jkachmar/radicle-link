@@ -112,6 +112,24 @@ pub async fn setup(num_peers: usize) -> anyhow::Result<Vec<TestPeer>> {
     Ok(peers)
 }
 
+pub async fn setup_seedless(num_peers: usize) -> anyhow::Result<Vec<TestPeer>> {
+    if num_peers < 1 {
+        return Ok(vec![]);
+    }
+
+    let peer = boot(vec![]).await?;
+
+    let mut peers = Vec::with_capacity(num_peers);
+    peers.push(peer);
+
+    for _ in 1..num_peers {
+        let peer = boot(vec![]).await?;
+        peers.push(peer)
+    }
+
+    Ok(peers)
+}
+
 pub async fn run_on_testnet<F, Fut, A>(peers: Vec<TestPeer>, mut f: F) -> A
 where
     F: FnMut(Vec<(PeerApi, SecretKey)>) -> Fut,
