@@ -130,12 +130,12 @@ pub async fn setup_seedless(num_peers: usize) -> anyhow::Result<Vec<TestPeer>> {
     Ok(peers)
 }
 
-pub async fn run_on_testnet<F, Fut, A>(peers: Vec<TestPeer>, mut f: F) -> A
+pub async fn run_on_testnet<F, Fut, A>(peers: Vec<TestPeer>, min_connected: usize, mut f: F) -> A
 where
     F: FnMut(Vec<(PeerApi, SecretKey)>) -> Fut,
     Fut: Future<Output = A>,
 {
-    let len = peers.len();
+    let num_peers = peers.len();
 
     // move out tempdirs, so they don't get dropped
     let (_tmps, peers_and_keys) = peers
@@ -152,13 +152,13 @@ where
         .unzip::<_, _, Vec<_>, Vec<_>>();
 
     let events = {
-        let mut events = Vec::with_capacity(len);
+        let mut events = Vec::with_capacity(num_peers);
         for api in &apis {
             events.push(api.protocol().subscribe().await);
         }
         events
     };
-    let connected = wait_connected(events, len);
+    let connected = wait_connected(events, min_connected);
 
     let res = future::select(
         future::select_all(runners).boxed(),
