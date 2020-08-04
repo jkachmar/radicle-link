@@ -15,7 +15,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-use std::{io, net::SocketAddr, pin::Pin, sync::Arc};
+use std::{io, net::SocketAddr, pin::Pin, str::FromStr, sync::Arc};
 
 use futures::{
     io::{AsyncRead, AsyncWrite},
@@ -64,7 +64,9 @@ impl Endpoint {
             endpoint,
         };
         let incoming = incoming
-            .filter_map(|connecting| async move { connecting.await.ok().map(new_connection) })
+            .filter_map(|connecting| async move {
+                connecting.await.ok().map(|conn| new_connection(None, conn))
+            })
             .boxed();
 
         Ok(BoundEndpoint { endpoint, incoming })
@@ -82,7 +84,7 @@ impl Endpoint {
             .await?;
 
         tracing::info!("successfully creating connection");
-        Ok(new_connection(conn))
+        Ok(new_connection(Some(peer), conn))
     }
 }
 
@@ -118,25 +120,36 @@ impl<'a> LocalInfo for BoundEndpoint<'a> {
 }
 
 fn new_connection<'a>(
+    peer_id: Option<&PeerId>,
     NewConnection {
         connection,
         bi_streams,
         ..
     }: NewConnection,
 ) -> (Connection, Incoming<'a>) {
-    let peer_id = tls::extract_peer_id(
-        connection
-            .authentication_data()
-            .peer_certificates
-            .expect("Certificates must be presented. qed")
-            .iter()
-            .next()
-            .expect("One certificate must have been presented. qed")
-            .as_ref(),
-    )
-    .expect("TLS layer ensures the cert contains a PeerId. qed");
+    let conn = match peer_id {
+        Some(peer_id) => Connection::new(peer_id, connection),
+        None => {
+            let auth = connection.authentication_data();
+            let peer_id = match auth.peer_certificates {
+                Some(certs) => tls::extract_peer_id(
+                    certs
+                        .iter()
+                        .next()
+                        .expect("One certificate must have been presented")
+                        .as_ref(),
+                )
+                .expect("TLS layer ensures the cert contains a PeerId"),
 
-    let conn = Connection::new(&peer_id, connection);
+                None => auth
+                    .server_name
+                    .expect("No SNI")
+                    .parse()
+                    .expect("SNI not a PeerId"),
+            };
+            Connection::new(&peer_id, connection)
+        },
+    };
 
     (
         conn.clone(),
