@@ -137,6 +137,7 @@ where
 /// `try_to_owned` operation is fallible due to having to perform IO. Also note
 /// that the `TryToOwned` trait is not currently considered a stable API.
 pub struct PeerApi {
+    listen_addr: SocketAddr,
     protocol: Protocol<PeerStorage, Gossip>,
     storage: GitStorage<WithSigner>,
     subscribers: Fanout<PeerEvent>,
@@ -144,6 +145,10 @@ pub struct PeerApi {
 }
 
 impl PeerApi {
+    pub fn listen_addr(&self) -> SocketAddr {
+        self.listen_addr
+    }
+
     pub fn protocol(&self) -> &Protocol<PeerStorage, Gossip> {
         &self.protocol
     }
@@ -175,6 +180,7 @@ impl TryToOwned for PeerApi {
     fn try_to_owned(&self) -> Result<Self::Owned, Self::Error> {
         let storage = self.storage.try_to_owned()?;
         Ok(Self {
+            listen_addr: self.listen_addr,
             protocol: self.protocol.clone(),
             storage,
             subscribers: self.subscribers.clone(),
@@ -221,6 +227,7 @@ impl Peer {
 
     pub fn accept(self) -> Result<(PeerApi, RunLoop), AcceptError> {
         let api = PeerApi {
+            listen_addr: self.listen_addr,
             storage: self.storage,
             protocol: self.protocol,
             subscribers: self.subscribers,
