@@ -143,6 +143,14 @@ impl DerefMut for Signatures {
     }
 }
 
+impl From<Signature> for Signatures {
+    fn from(Signature { key, sig }: Signature) -> Self {
+        let mut map = BTreeMap::new();
+        map.insert(key, sig);
+        map.into()
+    }
+}
+
 impl From<BTreeMap<PublicKey, keys::Signature>> for Signatures {
     fn from(map: BTreeMap<PublicKey, keys::Signature>) -> Self {
         Self(map)
@@ -177,6 +185,37 @@ impl FromIterator<(PublicKey, keys::Signature)> for Signatures {
         T: IntoIterator<Item = (PublicKey, keys::Signature)>,
     {
         Self(BTreeMap::from_iter(iter))
+    }
+}
+
+impl IntoIterator for Signatures {
+    type Item = (PublicKey, keys::Signature);
+    type IntoIter = <BTreeMap<PublicKey, keys::Signature> as IntoIterator>::IntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
+
+impl Extend<Signature> for Signatures {
+    fn extend<T>(&mut self, iter: T)
+    where
+        T: IntoIterator<Item = Signature>,
+    {
+        for Signature { key, sig } in iter {
+            self.insert(key, sig);
+        }
+    }
+}
+
+impl Extend<(PublicKey, keys::Signature)> for Signatures {
+    fn extend<T>(&mut self, iter: T)
+    where
+        T: IntoIterator<Item = (PublicKey, keys::Signature)>,
+    {
+        for (key, sig) in iter {
+            self.insert(key, sig);
+        }
     }
 }
 

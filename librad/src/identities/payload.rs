@@ -22,6 +22,7 @@ use std::{
     collections::{btree_map::Entry, BTreeMap, BTreeSet},
     convert::TryFrom,
     fmt::{self, Debug},
+    iter::FromIterator,
     marker::PhantomData,
     ops::{Deref, DerefMut, RangeBounds},
 };
@@ -34,7 +35,11 @@ use url::Url;
 
 use crate::{internal::canonical::Cstring, keys::PublicKey};
 
-use super::urn::{HasProtocol, Urn};
+use super::{
+    delegation,
+    sealed,
+    urn::{HasProtocol, Urn},
+};
 
 #[cfg(test)]
 use proptest_derive::Arbitrary;
@@ -71,6 +76,8 @@ pub struct User {
     pub name: Cstring,
 }
 
+impl sealed::Sealed for User {}
+
 /// Structure `radicle-link` expects to be part of a [`Payload`] describing a
 /// project identity.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
@@ -80,6 +87,8 @@ pub struct Project {
     pub description: Option<Cstring>,
     pub default_branch: Option<Cstring>,
 }
+
+impl sealed::Sealed for Project {}
 
 /// Namespace attached to a member type of the [`Payload`] "open" coproduct.
 ///
@@ -137,13 +146,6 @@ impl Subject for Project {
     fn namespace_matches(url: &Url) -> bool {
         url.as_str().starts_with(PROJECT_NAMESPACE_BASE.as_str())
     }
-}
-
-mod sealed {
-    pub trait Sealed {}
-
-    impl Sealed for super::User {}
-    impl Sealed for super::Project {}
 }
 
 pub type UserPayload = Payload<User>;
@@ -316,6 +318,17 @@ where
     }
 }
 
+#[derive(Clone, Debug, PartialEq, serde::Deserialize)]
+#[serde(untagged)]
+pub enum SomeDelegations<R, E>
+where
+    R: Debug + Ord + HasProtocol + TryFrom<Multihash, Error = E>,
+    E: std::error::Error + 'static,
+{
+    User(UserDelegations),
+    Project(ProjectDelegations<R>),
+}
+
 /// Delegations of a [`UserPayload`] identity document.
 ///
 /// This is just a set of [`PublicKey`]s. Note that it is a deserialisation
@@ -334,6 +347,12 @@ impl Deref for UserDelegations {
 impl DerefMut for UserDelegations {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
+    }
+}
+
+impl From<delegation::Direct> for UserDelegations {
+    fn from(d: delegation::Direct) -> Self {
+        Self(d.into())
     }
 }
 
@@ -394,6 +413,18 @@ pub struct KeyOrUrn<R> {
     inner: Either<PublicKey, Urn<R>>,
 }
 
+impl<R> From<Either<PublicKey, Urn<R>>> for KeyOrUrn<R> {
+    fn from(inner: Either<PublicKey, Urn<R>>) -> Self {
+        Self { inner }
+    }
+}
+
+impl<R> From<KeyOrUrn<R>> for Either<PublicKey, Urn<R>> {
+    fn from(KeyOrUrn { inner }: KeyOrUrn<R>) -> Self {
+        inner
+    }
+}
+
 impl<R> serde::Serialize for KeyOrUrn<R>
 where
     R: HasProtocol + serde::Serialize,
@@ -432,6 +463,26 @@ where
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProjectDelegations<R: Ord> {
     inner: BTreeSet<KeyOrUrn<R>>,
+}
+
+impl<R: Ord> IntoIterator for ProjectDelegations<R> {
+    type Item = KeyOrUrn<R>;
+    type IntoIter = <BTreeSet<KeyOrUrn<R>> as IntoIterator>::IntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.inner.into_iter()
+    }
+}
+
+impl<R: Ord> FromIterator<Either<PublicKey, Urn<R>>> for ProjectDelegations<R> {
+    fn from_iter<T>(iter: T) -> Self
+    where
+        T: IntoIterator<Item = Either<PublicKey, Urn<R>>>,
+    {
+        Self {
+            inner: iter.into_iter().map(KeyOrUrn::from).collect(),
+        }
+    }
 }
 
 impl<R> serde::Serialize for ProjectDelegations<R>

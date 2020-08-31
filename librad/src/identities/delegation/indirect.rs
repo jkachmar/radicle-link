@@ -24,11 +24,11 @@ use std::{
     fmt::{Debug, Display},
 };
 
-use either::Either;
+use either::*;
 
 use crate::keys::PublicKey;
 
-use super::{generic, sealed, Delegations, Direct};
+use super::{generic, payload, sealed, Delegations, Direct};
 
 pub mod error {
     use std::fmt::{Debug, Display};
@@ -145,6 +145,26 @@ impl<T, R, C> Indirect<T, R, C> {
                 acc.insert(k);
                 Ok(acc)
             })
+    }
+
+    pub fn iter(&self) -> Iter<'_, T, R, C> {
+        self.into_iter()
+    }
+}
+
+impl<T, R, C> From<Indirect<T, R, C>> for payload::ProjectDelegations<R>
+where
+    R: Clone + Ord,
+{
+    fn from(this: Indirect<T, R, C>) -> Self {
+        this.identities
+            .into_iter()
+            .map(|id| Right(id.urn().map(ToOwned::to_owned)))
+            .chain(this.delegations.into_iter().filter_map(|(k, v)| match v {
+                None => Some(Left(k)),
+                Some(_) => None,
+            }))
+            .collect()
     }
 }
 

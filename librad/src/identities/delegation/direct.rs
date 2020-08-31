@@ -55,6 +55,12 @@ impl From<payload::UserDelegations> for Direct {
     }
 }
 
+impl From<Direct> for BTreeSet<PublicKey> {
+    fn from(here: Direct) -> Self {
+        here.0
+    }
+}
+
 #[cfg(test)]
 impl From<BTreeSet<PublicKey>> for Direct {
     fn from(set: BTreeSet<PublicKey>) -> Self {
