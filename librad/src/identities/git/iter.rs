@@ -31,7 +31,7 @@ pub struct Iter<'a, T> {
 impl<'a, T> Iter<'a, T> {
     pub fn new(repo: &'a git2::Repository, head: git2::Oid) -> Result<Self, error::Load> {
         let mut revwalk = repo.revwalk()?;
-        revwalk.set_sorting(git2::Sort::TOPOLOGICAL & git2::Sort::REVERSE)?;
+        revwalk.set_sorting(git2::Sort::TOPOLOGICAL | git2::Sort::REVERSE)?;
         revwalk.push(head)?;
 
         Ok(Self {

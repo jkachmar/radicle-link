@@ -15,6 +15,7 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
+#![feature(backtrace)]
 #![feature(bool_to_option)]
 #![feature(btree_drain_filter)]
 #![feature(never_type)]

@@ -15,7 +15,10 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-use std::collections::{btree_set, BTreeSet};
+use std::{
+    collections::{btree_set, BTreeSet},
+    iter::FromIterator,
+};
 
 use crate::keys::PublicKey;
 
@@ -23,9 +26,8 @@ use super::{payload, sealed, Delegations};
 
 /// [`Delegations`] which delegate directly to a set of [`PublicKey`]s.
 ///
-/// The only way to construct a [`Direct`] value is `From`
-/// [`payload::UserDelegations`], which ensures that duplicates in the source
-/// document translate to an error.
+/// Untrusted input must be deserialised via [`payload::UserDelegations`],
+/// which ensures that duplicates in the source document translate to an error.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Direct(BTreeSet<PublicKey>);
 
@@ -65,6 +67,15 @@ impl From<Direct> for BTreeSet<PublicKey> {
 impl From<BTreeSet<PublicKey>> for Direct {
     fn from(set: BTreeSet<PublicKey>) -> Self {
         Self(set)
+    }
+}
+
+impl FromIterator<PublicKey> for Direct {
+    fn from_iter<T>(iter: T) -> Self
+    where
+        T: IntoIterator<Item = PublicKey>,
+    {
+        Self(iter.into_iter().collect())
     }
 }
 

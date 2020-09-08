@@ -41,6 +41,9 @@ pub mod iter;
 mod load;
 mod sign;
 
+#[cfg(test)]
+pub(crate) mod tests;
+
 use iter::Iter;
 use load::ByOid;
 
@@ -81,12 +84,11 @@ pub struct Git<'a, T> {
 }
 
 impl<'a, T: 'a> Git<'a, T> {
-    /// Read an identity whose type is not statically known from commit `oid`.
-    ///
-    /// The only guarantee about the returned value is that it is well-formed --
-    /// it may or may not pass verification.
-    pub fn some_identity(&self, oid: git2::Oid) -> Result<SomeIdentity, error::Load> {
-        SomeIdentity::try_from(self.by_oid(oid))
+    pub fn new(repo: &'a git2::Repository) -> Self {
+        Self {
+            repo,
+            _marker: PhantomData,
+        }
     }
 
     /// Convenience to specialise `T` to [`User`].
@@ -103,6 +105,14 @@ impl<'a, T: 'a> Git<'a, T> {
             repo: self.repo,
             _marker: PhantomData,
         }
+    }
+
+    /// Read an identity whose type is not statically known from commit `oid`.
+    ///
+    /// The only guarantee about the returned value is that it is well-formed --
+    /// it may or may not pass verification.
+    pub fn some_identity(&self, oid: git2::Oid) -> Result<SomeIdentity, error::Load> {
+        SomeIdentity::try_from(self.by_oid(oid))
     }
 
     /// Traverse the history with head commit `head`, yielding identities of
@@ -198,6 +208,38 @@ where
     T::Error: std::error::Error + 'static,
     Identity<T>: TryFrom<ByOid<'a>, Error = error::Load>,
 {
+    /// Sign and commit some identity.
+    pub fn create_from<S>(
+        &self,
+        theirs: SignedIdentity<T>,
+        signer: &S,
+    ) -> Result<Identity<T>, error::Store<S::Error>>
+    where
+        S: Signer,
+        S::Error: std::error::Error,
+    {
+        let mut signatures = theirs.signatures.clone();
+        {
+            let sig = sign(signer, theirs.revision).map_err(error::Store::Signer)?;
+            signatures.extend(Some(sig))
+        }
+        let content_id = self.commit(
+            &format!(
+                "Approved foreign identity {}, with content_id {} at revision {}",
+                theirs.root, theirs.content_id, theirs.revision
+            ),
+            &signatures,
+            theirs.revision,
+            &[&theirs],
+        )?;
+
+        Ok(Identity {
+            content_id,
+            signatures,
+            ..theirs.into_inner()
+        })
+    }
+
     /// Apply `theirs` to `ours`, and sign the result.
     ///
     /// This is like a merge of `theirs` into `ours` -- the resulting commit

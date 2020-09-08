@@ -144,8 +144,8 @@ where
                 .find(|entry| entry.kind() == Some(git2::ObjectType::Blob))
                 .ok_or(error::Load::MissingDoc)?;
 
-            let name = first_blob_entry.name_bytes();
-            let root = git2::Oid::from_bytes(name)?;
+            let name = String::from_utf8_lossy(first_blob_entry.name_bytes());
+            let root = git2::Oid::from_str(&name)?;
             let blob = first_blob_entry
                 .to_object(repo)?
                 .into_blob()
