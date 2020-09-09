@@ -49,7 +49,7 @@ fn create_user() {
                 name: "chantal".into(),
             }),
             Some(CHANTAL_SECRET.public()).into_iter().collect(),
-            &CHANTAL_SECRET.clone(),
+            &*CHANTAL_SECRET,
         )
         .unwrap();
     let real_chantal = handle.verify(*chantal.content_id).unwrap().into_inner();
@@ -68,7 +68,7 @@ fn update_user() {
                 name: "chantal".into(),
             }),
             Some(CHANTAL_SECRET.public()).into_iter().collect(),
-            &CHANTAL_SECRET.clone(),
+            &*CHANTAL_SECRET,
         )
         .unwrap();
     let chantal_revision = chantal.revision;
@@ -83,7 +83,7 @@ fn update_user() {
             generic::Verifying::from(chantal).signed::<!>().unwrap(),
             None,
             Some(chantal_and_dylan),
-            &CHANTAL_SECRET.clone(),
+            &*CHANTAL_SECRET,
         )
         .unwrap();
 
@@ -95,7 +95,7 @@ fn update_user() {
     let dylan = handle
         .create_from(
             generic::Verifying::from(chantal2).signed::<!>().unwrap(),
-            &DYLAN_SECRET.clone(),
+            &*DYLAN_SECRET,
         )
         .unwrap();
     let real_dylan = handle.verify(*dylan.content_id).unwrap().into_inner();

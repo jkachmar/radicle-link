@@ -181,12 +181,25 @@ impl sign::Signer for SecretKey {
     type Error = Infallible;
 
     fn public_key(&self) -> sign::PublicKey {
+        sign::Signer::public_key(&self)
+    }
+
+    async fn sign(&self, data: &[u8]) -> Result<sign::Signature, Self::Error> {
+        sign::Signer::sign(&self, data).await
+    }
+}
+
+#[async_trait]
+impl<'a> sign::Signer for &'a SecretKey {
+    type Error = Infallible;
+
+    fn public_key(&self) -> sign::PublicKey {
         let public_key = self.public().0;
         sign::PublicKey(public_key.0)
     }
 
     async fn sign(&self, data: &[u8]) -> Result<sign::Signature, Self::Error> {
-        let signature = self.sign(data).0;
+        let signature = SecretKey::sign(self, data).0;
         Ok(sign::Signature(signature.0))
     }
 }
