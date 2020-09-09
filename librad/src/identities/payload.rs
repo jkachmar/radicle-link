@@ -69,11 +69,11 @@ pub struct User {
 
 #[cfg(test)]
 impl Arbitrary for User {
-    type Parameters = <Cstring as Arbitrary>::Parameters;
+    type Parameters = ();
     type Strategy = prop::strategy::Map<<Cstring as Arbitrary>::Strategy, fn(Cstring) -> Self>;
 
-    fn arbitrary_with(params: Self::Parameters) -> Self::Strategy {
-        any_with::<Cstring>(params).prop_map(|name| User { name })
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        any::<Cstring>().prop_map(|name| User { name })
     }
 }
 
@@ -88,11 +88,9 @@ pub struct Project {
 
 #[cfg(test)]
 impl Arbitrary for Project {
-    type Parameters = (
-        <Cstring as Arbitrary>::Parameters,
-        <Option<Cstring> as Arbitrary>::Parameters,
-        <Option<Cstring> as Arbitrary>::Parameters,
-    );
+    type Parameters = ();
+    // Silly clippy: this _is_ a type definition
+    #[allow(clippy::type_complexity)]
     type Strategy = prop::strategy::Map<
         (
             <Cstring as Arbitrary>::Strategy,
@@ -102,12 +100,12 @@ impl Arbitrary for Project {
         fn((Cstring, Option<Cstring>, Option<Cstring>)) -> Self,
     >;
 
-    fn arbitrary_with((param0, param1, param2): Self::Parameters) -> Self::Strategy {
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
         Strategy::prop_map(
             (
-                any_with::<Cstring>(param0),
-                any_with::<Option<Cstring>>(param1),
-                any_with::<Option<Cstring>>(param2),
+                any::<Cstring>(),
+                any::<Option<Cstring>>(),
+                any::<Option<Cstring>>(),
             ),
             |(name, description, default_branch)| Project {
                 name,
@@ -560,11 +558,11 @@ mod tests {
     }
 
     impl Arbitrary for UpstreamUser {
-        type Parameters = <Cstring as Arbitrary>::Parameters;
+        type Parameters = ();
         type Strategy = prop::strategy::Map<<Cstring as Arbitrary>::Strategy, fn(Cstring) -> Self>;
 
-        fn arbitrary_with(params: Self::Parameters) -> Self::Strategy {
-            any_with::<Cstring>(params).prop_map(|registered_as| Self { registered_as })
+        fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+            any::<Cstring>().prop_map(|registered_as| Self { registered_as })
         }
     }
 
@@ -581,11 +579,11 @@ mod tests {
     }
 
     impl Arbitrary for UpstreamProject {
-        type Parameters = <Cstring as Arbitrary>::Parameters;
+        type Parameters = ();
         type Strategy = prop::strategy::Map<<Cstring as Arbitrary>::Strategy, fn(Cstring) -> Self>;
 
-        fn arbitrary_with(params: Self::Parameters) -> Self::Strategy {
-            any_with::<Cstring>(params).prop_map(|registered_as| Self { registered_as })
+        fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+            any::<Cstring>().prop_map(|registered_as| Self { registered_as })
         }
     }
 
