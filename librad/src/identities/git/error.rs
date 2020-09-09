@@ -21,7 +21,7 @@ use thiserror::Error;
 
 use crate::{
     identities::{
-        delegation::indirect::error::{DoubleVote, FromIter as DelegationsFromIterError},
+        delegation::indirect::error::FromIter as DelegationsFromIterError,
         generic,
         sign,
         ContentId,
@@ -120,7 +120,7 @@ pub enum VerifyProject<E: std::error::Error + 'static> {
     Lookup(#[source] E),
 
     #[error(transparent)]
-    Verification(#[from] generic::error::Verify<Revision, ContentId, DoubleVote, self::Load>),
+    Verification(#[from] generic::error::Verify<Revision, ContentId>),
 
     #[error(transparent)]
     VerifyUser(#[from] self::VerifyUser),
@@ -145,7 +145,7 @@ pub enum VerifyUser {
     },
 
     #[error(transparent)]
-    Verification(#[from] generic::error::Verify<Revision, ContentId, !, self::Load>),
+    Verification(#[from] generic::error::Verify<Revision, ContentId>),
 
     #[error(transparent)]
     Git(#[from] git2::Error),

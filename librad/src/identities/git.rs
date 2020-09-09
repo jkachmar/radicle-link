@@ -74,7 +74,7 @@ pub type SignedProject = SignedIdentity<ProjectDoc>;
 pub type VerifiedUser = VerifiedIdentity<UserDoc>;
 pub type VerifiedProject = VerifiedIdentity<ProjectDoc>;
 
-pub type VerificationError<T> = generic::error::Verify<Revision, ContentId, T, error::Load>;
+pub type VerificationError = generic::error::Verify<Revision, ContentId>;
 
 pub type IndirectDelegation = delegation::Indirect<UserPayload, Revision, ContentId>;
 
@@ -144,10 +144,11 @@ impl<'a, T: 'a> Git<'a, T> {
     fn verify_generic<Doc>(
         &self,
         head: git2::Oid,
-    ) -> Result<VerifiedIdentity<Doc>, VerificationError<<Doc as Delegations>::Error>>
+    ) -> Result<VerifiedIdentity<Doc>, VerificationError>
     where
         Doc: Delegations + generic::Replaces<Revision = Revision>,
-        <Doc as Delegations>::Error: std::error::Error,
+        <Doc as Delegations>::Error: std::error::Error + 'static,
+
         Identity<Doc>: TryFrom<ByOid<'a>, Error = error::Load>,
     {
         self.fold_verify_generic(head).map(|folded| folded.head)
@@ -156,23 +157,21 @@ impl<'a, T: 'a> Git<'a, T> {
     fn fold_verify_generic<Doc>(
         &self,
         head: git2::Oid,
-    ) -> Result<
-        generic::Folded<Doc, Revision, ContentId>,
-        VerificationError<<Doc as Delegations>::Error>,
-    >
+    ) -> Result<generic::Folded<Doc, Revision, ContentId>, VerificationError>
     where
         Doc: Delegations + generic::Replaces<Revision = Revision>,
-        <Doc as Delegations>::Error: std::error::Error,
+        <Doc as Delegations>::Error: std::error::Error + 'static,
+
         Identity<Doc>: TryFrom<ByOid<'a>, Error = error::Load>,
     {
         let mut progeny = Iter::<'_, Identity<Doc>>::new(self.repo, head)
-            .map_err(generic::error::Verify::Iter)?;
+            .map_err(generic::error::Verify::history)?;
 
         // TODO(kim): should we skip non-quorum commits at the beginning?
         let root = progeny
             .next()
             .ok_or(generic::error::Verify::EmptyHistory)?
-            .map_err(generic::error::Verify::Iter)?
+            .map_err(generic::error::Verify::history)?
             .signed()?
             .quorum()?
             .verified(None)?;

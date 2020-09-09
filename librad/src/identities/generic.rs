@@ -297,14 +297,11 @@ impl<T, R, C> Verifying<Identity<T, R, C>, Untrusted> {
     /// # Errors
     ///
     /// If the set of valid and eligible signatures is empty.
-    pub fn signed<E>(
-        self,
-    ) -> Result<Verifying<Identity<T, R, C>, Signed>, error::Verify<R, C, T::Error, E>>
+    pub fn signed(self) -> Result<Verifying<Identity<T, R, C>, Signed>, error::Verify<R, C>>
     where
         T: Delegations,
         T::Error: std::error::Error + 'static,
 
-        E: std::error::Error + 'static,
         R: Debug + Display + AsRef<[u8]>,
         C: Debug + Display,
     {
@@ -319,7 +316,7 @@ impl<T, R, C> Verifying<Identity<T, R, C>, Untrusted> {
 
         let eligible = doc
             .eligible(signatures.keys().collect())
-            .map_err(error::Verify::Delegation)?;
+            .map_err(error::Verify::delegation)?;
         // `drain_filter` is such a strange API:
         //
         // "If the closure returns true, the element is removed from the map and
@@ -356,14 +353,11 @@ impl<T, R, C> Verifying<Identity<T, R, C>, Untrusted> {
     /// Attempt to transition from [`Untrusted`] to [`Quorum`]
     ///
     /// Convenience for when [`Signed`] is not interesting.
-    pub fn quorum<E>(
-        self,
-    ) -> Result<Verifying<Identity<T, R, C>, Quorum>, error::Verify<R, C, T::Error, E>>
+    pub fn quorum(self) -> Result<Verifying<Identity<T, R, C>, Quorum>, error::Verify<R, C>>
     where
         T: Delegations,
         T::Error: std::error::Error + 'static,
 
-        E: std::error::Error + 'static,
         R: Debug + Display + AsRef<[u8]>,
         C: Debug + Display,
     {
@@ -373,15 +367,14 @@ impl<T, R, C> Verifying<Identity<T, R, C>, Untrusted> {
     /// Attempt to transition from [`Untrusted`] straight to [`Verified`].
     ///
     /// Convenience for when the intermediate states are not interesting.
-    pub fn verified<E>(
+    pub fn verified(
         self,
         parent: Option<&Verifying<Identity<T, R, C>, Verified>>,
-    ) -> Result<Verifying<Identity<T, R, C>, Verified>, error::Verify<R, C, T::Error, E>>
+    ) -> Result<Verifying<Identity<T, R, C>, Verified>, error::Verify<R, C>>
     where
         T: Delegations + Replaces<Revision = R>,
         T::Error: std::error::Error + 'static,
 
-        E: std::error::Error + 'static,
         R: Clone + Debug + Display + PartialEq + AsRef<[u8]>,
         C: Clone + Debug + Display,
     {
@@ -396,14 +389,11 @@ impl<T, R, C> Verifying<Identity<T, R, C>, Signed> {
     ///
     /// If the number of signatures does not reach the
     /// [`Delegations::quorum_threshold`].
-    pub fn quorum<E>(
-        self,
-    ) -> Result<Verifying<Identity<T, R, C>, Quorum>, error::Verify<R, C, T::Error, E>>
+    pub fn quorum(self) -> Result<Verifying<Identity<T, R, C>, Quorum>, error::Verify<R, C>>
     where
         T: Delegations,
         T::Error: std::error::Error + 'static,
 
-        E: std::error::Error + 'static,
         R: Debug + Display,
         C: Debug + Display,
     {
@@ -435,15 +425,14 @@ impl<T, R, C> Verifying<Identity<T, R, C>, Quorum> {
     ///   `parent.eligible(self.signatures.keys()).len() >
     ///   parent.doc.quorum_threshold()`
     /// * `parent.eligible(self.signatures.keys())` returns an error
-    pub fn verified<E>(
+    pub fn verified(
         self,
         parent: Option<&Verifying<Identity<T, R, C>, Verified>>,
-    ) -> Result<Verifying<Identity<T, R, C>, Verified>, error::Verify<R, C, T::Error, E>>
+    ) -> Result<Verifying<Identity<T, R, C>, Verified>, error::Verify<R, C>>
     where
         T: Delegations + Replaces<Revision = R>,
         T::Error: std::error::Error + 'static,
 
-        E: std::error::Error + 'static,
         R: Clone + Debug + Display + PartialEq + AsRef<[u8]>,
         C: Clone + Debug + Display,
     {
@@ -471,7 +460,7 @@ impl<T, R, C> Verifying<Identity<T, R, C>, Quorum> {
                     let votes = parent
                         .doc
                         .eligible(self.signatures.keys().collect())
-                        .map_err(error::Verify::Delegation)?
+                        .map_err(error::Verify::delegation)?
                         .len();
 
                     if votes > parent.doc.quorum_threshold() {
@@ -512,14 +501,15 @@ impl<T, R, C> Verifying<Identity<T, R, C>, Verified> {
     pub fn verify<E>(
         self,
         mut progeny: impl Iterator<Item = Result<Verifying<Identity<T, R, C>, Untrusted>, E>>,
-    ) -> Result<Folded<T, R, C>, error::Verify<R, C, T::Error, E>>
+    ) -> Result<Folded<T, R, C>, error::Verify<R, C>>
     where
         T: Delegations + Replaces<Revision = R>,
-        <T as Delegations>::Error: std::error::Error + 'static,
+        T::Error: std::error::Error + 'static,
 
-        E: std::error::Error + 'static,
         R: Clone + Debug + Display + PartialEq + AsRef<[u8]>,
         C: Clone + Debug + Display,
+
+        E: std::error::Error + 'static,
     {
         progeny.try_fold(
             Folded {
@@ -528,8 +518,8 @@ impl<T, R, C> Verifying<Identity<T, R, C>, Verified> {
             },
             |acc, cur| {
                 // Not signed is an error
-                let signed = cur.map_err(error::Verify::Iter)?.signed()?;
-                match signed.quorum::<E>() {
+                let signed = cur.map_err(error::Verify::history)?.signed()?;
+                match signed.quorum() {
                     // Not reaching quorum is ok, skip
                     Err(_) => Ok(acc),
                     Ok(quorum) => quorum.verified(Some(&acc.head)).map(|verified| Folded {

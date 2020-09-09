@@ -39,7 +39,7 @@ proptest! {
                 delegation::Direct::from(BTreeSet::new()),
                 signatures
             ))
-            .signed::<!>(),
+            .signed(),
             Err(error::Verify::NoValidSignatures(_, _))
         ))
     }
@@ -48,7 +48,7 @@ proptest! {
     fn signed(id in gen_identity::<Boring>()) {
         assert_eq!(
             Verifying::from(id.clone())
-                .signed::<!>()
+                .signed()
                 .unwrap()
                 .into_inner(),
             id
@@ -75,7 +75,7 @@ proptest! {
         };
 
         assert!(matches!(
-            Verifying::from(id).quorum::<!>(),
+            Verifying::from(id).quorum(),
             Err(error::Verify::Quorum)
         ))
     }
@@ -84,7 +84,7 @@ proptest! {
     fn quorum(id in gen_identity::<Boring>()) {
         assert_eq!(
             Verifying::from(id.clone())
-                .quorum::<!>()
+                .quorum()
                 .unwrap()
                 .into_inner(),
             id
@@ -95,7 +95,7 @@ proptest! {
     fn verified_root(id in gen_root_identity::<Revision>()) {
         assert_eq!(
             Verifying::from(id.clone())
-                .verified::<!>(None)
+                .verified(None)
                 .unwrap()
                 .into_inner(),
             id
@@ -106,9 +106,9 @@ proptest! {
     fn verified(NonEmpty { head, tail } in gen_history(1)) {
         match tail.as_slice() {
             [next] => {
-                let parent = Verifying::from(head).verified::<!>(None).unwrap();
+                let parent = Verifying::from(head).verified(None).unwrap();
                 let child = Verifying::from(next.clone())
-                    .verified::<!>(Some(&parent))
+                    .verified(Some(&parent))
                     .unwrap()
                     .into_inner();
 
@@ -121,12 +121,12 @@ proptest! {
 
     #[test]
     fn verified_dangling_parent(parent in gen_root_identity::<Revision>()) {
-        let parent = Verifying::from(parent).verified::<!>(None).unwrap();
+        let parent = Verifying::from(parent).verified(None).unwrap();
         let child = Verifying::from(parent.clone().into_inner().map(|doc| Doc {
             replaces: None,
             ..doc
         }))
-        .verified::<!>(Some(&parent));
+        .verified(Some(&parent));
 
         assert!(matches!(child, Err(error::Verify::DanglingParent { .. })))
     }
@@ -140,9 +140,9 @@ proptest! {
             root: parent_root,
             ..id.clone()
         })
-        .verified::<!>(None)
+        .verified(None)
         .unwrap();
-        let child = Verifying::from(id).verified::<!>(Some(&parent));
+        let child = Verifying::from(id).verified(Some(&parent));
 
         assert!(matches!(child, Err(error::Verify::RootMismatch { .. })))
     }
@@ -152,11 +152,11 @@ proptest! {
         parent in gen_root_identity::<Revision>(),
         bogus_replaces in any::<Revision>()
     ) {
-        let parent = Verifying::from(parent).verified::<!>(None).unwrap();
+        let parent = Verifying::from(parent).verified(None).unwrap();
         let child = Verifying::from(parent.clone().into_inner().map(|doc| Doc {
             replaces: Some(bogus_replaces),
             ..doc
-        })).verified::<!>(Some(&parent));
+        })).verified(Some(&parent));
 
         assert!(matches!(child, Err(error::Verify::ParentMismatch { .. })))
     }
@@ -171,7 +171,7 @@ proptest! {
     ) {
         match tail.as_slice() {
             [next] => {
-                let parent = Verifying::from(head).verified::<!>(None).unwrap();
+                let parent = Verifying::from(head).verified(None).unwrap();
                 let next = Identity {
                     signatures: BTreeMap::from(next.signatures.clone())
                         .into_iter()
@@ -182,7 +182,7 @@ proptest! {
                 };
 
                 assert!(matches!(
-                    Verifying::from(next).verified::<!>(Some(&parent)),
+                    Verifying::from(next).verified(Some(&parent)),
                     Err(error::Verify::Quorum)
                 ))
             },
@@ -194,7 +194,7 @@ proptest! {
     #[test]
     fn verify(history in gen_history(0..10)) {
         let NonEmpty { head, tail } = history;
-        let root = Verifying::from(head).verified::<!>(None).unwrap();
+        let root = Verifying::from(head).verified(None).unwrap();
         let expected = if tail.is_empty() {
             root.clone().into_inner()
         } else {

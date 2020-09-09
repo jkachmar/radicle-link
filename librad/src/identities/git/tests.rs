@@ -80,7 +80,7 @@ fn update_user() {
 
     let chantal2 = handle
         .update(
-            generic::Verifying::from(chantal).signed::<!>().unwrap(),
+            generic::Verifying::from(chantal).signed().unwrap(),
             None,
             Some(chantal_and_dylan),
             &*CHANTAL_SECRET,
@@ -94,7 +94,7 @@ fn update_user() {
     // Dylan can help to reach the quorum, tho
     let dylan = handle
         .create_from(
-            generic::Verifying::from(chantal2).signed::<!>().unwrap(),
+            generic::Verifying::from(chantal2).signed().unwrap(),
             &*DYLAN_SECRET,
         )
         .unwrap();

@@ -21,12 +21,10 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 #[non_exhaustive]
-pub enum Verify<Revision, ContentId, Delegation, Iter>
+pub enum Verify<Revision, ContentId>
 where
     Revision: Display + Debug + 'static,
     ContentId: Display + Debug + 'static,
-    Delegation: std::error::Error + 'static,
-    Iter: std::error::Error + 'static,
 {
     #[error("no valid signatures over {0} in {1}")]
     NoValidSignatures(Revision, ContentId),
@@ -56,8 +54,28 @@ where
     EmptyHistory,
 
     #[error("non-eligible delegation")]
-    Delegation(#[source] Delegation),
+    Delegation(#[source] Box<dyn std::error::Error + 'static>),
 
     #[error("error traversing the identity history")]
-    Iter(#[source] Iter),
+    History(#[source] Box<dyn std::error::Error + 'static>),
+}
+
+impl<R, C> Verify<R, C>
+where
+    R: Display + Debug + 'static,
+    C: Display + Debug + 'static,
+{
+    pub fn delegation<E>(e: E) -> Self
+    where
+        E: std::error::Error + 'static,
+    {
+        Self::Delegation(Box::new(e))
+    }
+
+    pub fn history<E>(e: E) -> Self
+    where
+        E: std::error::Error + 'static,
+    {
+        Self::History(Box::new(e))
+    }
 }
