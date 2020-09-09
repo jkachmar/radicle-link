@@ -26,6 +26,9 @@ use serde_bytes::ByteBuf;
 use thiserror::Error;
 use unicode_normalization::UnicodeNormalization;
 
+#[cfg(test)]
+use proptest::prelude::*;
+
 pub mod formatter;
 
 /// Types which have a canonical representation
@@ -152,14 +155,16 @@ where
 /// [Unicode Standard Annex #15]: http://www.unicode.org/reports/tr15/
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, serde::Serialize)]
 #[serde(transparent)]
-#[cfg_attr(test, derive(proptest_derive::Arbitrary))]
-pub struct Cstring(#[cfg_attr(test, proptest(strategy(gen_cstring)))] String);
+pub struct Cstring(String);
 
 #[cfg(test)]
-fn gen_cstring() -> impl proptest::strategy::Strategy<Value = String> {
-    use proptest::prelude::*;
+impl Arbitrary for Cstring {
+    type Parameters = ();
+    type Strategy = prop::strategy::Map<&'static str, fn(String) -> Self>;
 
-    ".*".prop_map(|s| s.nfc().collect())
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        ".*".prop_map(|s| Cstring(s.nfc().collect()))
+    }
 }
 
 impl<'de> serde::Deserialize<'de> for Cstring {
@@ -243,10 +248,8 @@ mod tests {
 
     use librad_test::roundtrip::*;
     use pretty_assertions::assert_eq;
-    use proptest::prelude::*;
-    use proptest_derive::Arbitrary;
 
-    #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize, Arbitrary)]
+    #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
     struct T {
         #[serde(deserialize_with = "string::deserialize")]
         field: String,
@@ -258,6 +261,10 @@ mod tests {
                 field: self.field.nfc().collect(),
             }
         }
+    }
+
+    fn gen_t() -> impl Strategy<Value = T> {
+        ".*".prop_map(|field| T { field })
     }
 
     proptest! {
@@ -277,7 +284,7 @@ mod tests {
         }
 
         #[test]
-        fn any_string_roundtrip_json(t in any::<T>()) {
+        fn any_string_roundtrip_json(t in gen_t()) {
             let ser = serde_json::to_string(&t).unwrap();
             let de = serde_json::from_str(&ser).unwrap();
 
@@ -285,7 +292,7 @@ mod tests {
         }
 
         #[test]
-        fn any_string_roundtrip_cjson(t in any::<T>()) {
+        fn any_string_roundtrip_cjson(t in gen_t()) {
             let canonical = Cjson(&t).canonical_form().unwrap();
 
             assert_eq!(t.normalised(), serde_json::from_slice(&canonical).unwrap())
