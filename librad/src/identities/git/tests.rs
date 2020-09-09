@@ -38,20 +38,22 @@ fn repo() -> TmpRepo {
     .unwrap()
 }
 
+fn mk_chantal(handle: &Git<'_, User>) -> Result<User, Box<dyn std::error::Error>> {
+    Ok(handle.create(
+        UserPayload::new(payload::User {
+            name: "chantal".into(),
+        }),
+        Some(CHANTAL_SECRET.public()).into_iter().collect(),
+        &*CHANTAL_SECRET,
+    )?)
+}
+
 #[test]
 fn create_user() {
     let repo = repo();
     let handle = Git::<User>::new(&repo);
 
-    let chantal = handle
-        .create(
-            UserPayload::new(payload::User {
-                name: "chantal".into(),
-            }),
-            Some(CHANTAL_SECRET.public()).into_iter().collect(),
-            &*CHANTAL_SECRET,
-        )
-        .unwrap();
+    let chantal = mk_chantal(&handle).unwrap();
     let real_chantal = handle.verify(*chantal.content_id).unwrap().into_inner();
 
     assert_eq!(chantal, real_chantal)
@@ -62,15 +64,7 @@ fn update_user() {
     let repo = repo();
     let handle = Git::<User>::new(&repo);
 
-    let chantal = handle
-        .create(
-            UserPayload::new(payload::User {
-                name: "chantal".into(),
-            }),
-            Some(CHANTAL_SECRET.public()).into_iter().collect(),
-            &*CHANTAL_SECRET,
-        )
-        .unwrap();
+    let chantal = mk_chantal(&handle).unwrap();
     let chantal_revision = chantal.revision;
 
     let chantal_and_dylan: delegation::Direct =
@@ -101,4 +95,34 @@ fn update_user() {
     let real_dylan = handle.verify(*dylan.content_id).unwrap().into_inner();
 
     assert_eq!(dylan, real_dylan)
+}
+
+#[test]
+fn create_project() {
+    let repo = repo();
+    let handle = Git::<User>::new(&repo);
+
+    let chantal = mk_chantal(&handle).unwrap();
+    let chantal_head = chantal.content_id;
+    let delegations = delegation::Indirect::try_from_iter(Some(Right(chantal))).unwrap();
+
+    let hs_emoji = handle
+        .as_project()
+        .create(
+            ProjectPayload::new(payload::Project {
+                name: "haskell-emoji".into(),
+                description: Some("The most important software package in the world".into()),
+                default_branch: Some("\u{1F32F}".into()),
+            }),
+            delegations,
+            &*CHANTAL_SECRET,
+        )
+        .unwrap();
+    let real_hs_emoji = handle
+        .as_project()
+        .verify::<_, !>(*hs_emoji.content_id, |_| Ok(*chantal_head))
+        .unwrap()
+        .into_inner();
+
+    assert_eq!(hs_emoji, real_hs_emoji)
 }

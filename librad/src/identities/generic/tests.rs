@@ -40,7 +40,7 @@ proptest! {
                 signatures
             ))
             .signed(),
-            Err(error::Verify::NoValidSignatures(_, _))
+            Err(error::Verify::NoValidSignatures { .. })
         ))
     }
 

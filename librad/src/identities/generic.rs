@@ -346,7 +346,10 @@ impl<T, R, C> Verifying<Identity<T, R, C>, Untrusted> {
                 state: PhantomData,
             })
         } else {
-            Err(error::Verify::NoValidSignatures(revision, content_id))
+            Err(error::Verify::NoValidSignatures {
+                revision,
+                content_id,
+            })
         }
     }
 

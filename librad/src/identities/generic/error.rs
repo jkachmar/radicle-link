@@ -26,8 +26,11 @@ where
     Revision: Display + Debug + 'static,
     ContentId: Display + Debug + 'static,
 {
-    #[error("no valid signatures over {0} in {1}")]
-    NoValidSignatures(Revision, ContentId),
+    #[error("no valid signatures over {revision} in {content_id}")]
+    NoValidSignatures {
+        revision: Revision,
+        content_id: ContentId,
+    },
 
     #[error("quorum not reached")]
     Quorum,
