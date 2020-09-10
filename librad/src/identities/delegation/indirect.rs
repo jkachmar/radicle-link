@@ -55,10 +55,43 @@ pub type IndirectlyDelegating<T, R, C> = generic::Identity<generic::Doc<T, Direc
 
 /// [`Delegations`] to either a [`PublicKey`]s directly, or another identity
 /// (which itself must only contain [`Direct`] delegations).
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct Indirect<T, R, C> {
     identities: Vec<IndirectlyDelegating<T, R, C>>,
     delegations: BTreeMap<PublicKey, Option<usize>>,
+}
+
+// `self.identities` is stored in insertion order, so we can't just derive
+// `PartialEq`. It turns out that making `Identity` `Ord` (or `Hash`) is quite
+// invasive, plus that we would need to store an extra unordered set. There is
+// also not a hard guarantee the `Identity` invariants are maintained (namely
+// the content hashes). So, let's keep this impl to tests, and assume `root` and
+// `revision` identify the stored `IndirectlyDelegating`.
+#[cfg(test)]
+impl<T, R, C> PartialEq for Indirect<T, R, C>
+where
+    R: Ord,
+    C: Ord,
+{
+    fn eq(&self, other: &Self) -> bool {
+        self.delegations.len() == other.delegations.len()
+            && self.identities.len() == other.identities.len()
+            && self
+                .delegations
+                .keys()
+                .zip(other.delegations.keys())
+                .all(|(a, b)| a == b)
+            && self
+                .identities
+                .iter()
+                .map(|id| (&id.root, &id.revision))
+                .collect::<BTreeSet<_>>()
+                == other
+                    .identities
+                    .iter()
+                    .map(|id| (&id.root, &id.revision))
+                    .collect::<BTreeSet<_>>()
+    }
 }
 
 impl<T, R, C> Indirect<T, R, C> {
@@ -159,7 +192,7 @@ where
     fn from(this: Indirect<T, R, C>) -> Self {
         this.identities
             .into_iter()
-            .map(|id| Right(id.urn().map(ToOwned::to_owned)))
+            .map(|id| Right(id.urn()))
             .chain(this.delegations.into_iter().filter_map(|(k, v)| match v {
                 None => Some(Left(k)),
                 Some(_) => None,

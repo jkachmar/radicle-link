@@ -120,7 +120,7 @@ impl<'a> From<SignatureRef<'a>> for Trailer<'_> {
 
 // FIXME(kim): This should really be a HashMap with a no-op Hasher -- PublicKey
 // collisions are catastrophic
-#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, serde::Serialize, serde::Deserialize)]
 pub struct Signatures(BTreeMap<PublicKey, keys::Signature>);
 
 impl Signatures {

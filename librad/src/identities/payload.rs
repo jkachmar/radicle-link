@@ -353,6 +353,15 @@ where
     }
 }
 
+impl<T> From<T> for Payload<T>
+where
+    T: Subject,
+{
+    fn from(subject: T) -> Self {
+        Self::new(subject)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, serde::Deserialize)]
 #[serde(untagged)]
 pub enum SomeDelegations<R, E>

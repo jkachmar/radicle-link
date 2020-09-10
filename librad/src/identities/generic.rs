@@ -159,7 +159,15 @@ pub struct Identity<T, Revision, ContentId> {
 
 impl<T, R, C> Identity<T, R, C> {
     /// The stable identifier of this identity.
-    pub fn urn(&self) -> Urn<&R> {
+    pub fn urn(&self) -> Urn<R>
+    where
+        R: Clone,
+    {
+        Urn::new(self.root.clone())
+    }
+
+    /// Non-allocating variant of [`Self::urn`].
+    pub fn urn_ref(&self) -> Urn<&R> {
         Urn::new(&self.root)
     }
 

@@ -28,7 +28,7 @@ use super::{payload, sealed, Delegations};
 ///
 /// Untrusted input must be deserialised via [`payload::UserDelegations`],
 /// which ensures that duplicates in the source document translate to an error.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct Direct(BTreeSet<PublicKey>);
 
 impl Direct {
