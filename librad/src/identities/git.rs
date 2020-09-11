@@ -252,9 +252,10 @@ where
     /// 2. `ours.root` must equal `theirs.root`
     /// 3. If `theirs` is already a commit in the ancestry path of `ours`,
     ///    nothing is to be done, and `ours` is returned
-    /// 4. If `ours` is already a commit in the ancestry path of `theirs`, the
-    ///    merge is a fast-forward (ie. a ref owned by us can just be set to
-    ///    `theirs.content_id`). In this case, `theirs` is returned.
+    /// 4. If `ours` is already a commit in the ancestry path of `theirs`, and
+    ///    `theirs` is already signed by `signer`, the merge is a fast- forward
+    ///    (ie. a ref owned by us can just be set to `theirs.content_id`). In
+    ///    this case, `theirs` is returned.
     /// 5. If `ours.revision == theirs.revision`, an "empty" commit is created,
     ///    signed by the union of both sets of signatures.
     /// 6. If `theirs` replaces `ours` (ie. `ours.revision ==
@@ -276,67 +277,92 @@ where
         let ours = ours.into_inner();
         let theirs = theirs.into_inner();
 
-        if !ours.signatures.contains_key(&signer.public_key().into()) {
-            Err(error::Merge::ForeignBase)
-        } else if ours.root != theirs.root {
-            Err(error::Merge::RootMismatch)
-        } else if self
-            .repo
-            .graph_descendant_of(ours.content_id.into(), theirs.content_id.into())?
-        {
-            // Theirs is already in ours: no-op
-            Ok(ours)
-        } else if self
-            .repo
-            .graph_descendant_of(theirs.content_id.into(), ours.content_id.into())?
-        {
-            // Ours is in theirs: fast-forward
-            Ok(theirs)
-        } else if ours.revision == theirs.revision {
-            // Same trees, we only need to merge the signatures
-            let mut signatures = ours.signatures.clone();
-            signatures.extend(theirs.signatures.clone());
+        let our_pk = signer.public_key().into();
 
-            let content_id = self.commit(
-                &format!("Updated signatures from {}", theirs.content_id),
-                &signatures,
-                ours.revision,
-                &[&ours, &theirs],
-            )?;
-
-            Ok(Identity {
-                content_id,
-                signatures,
-                ..ours
-            })
-        } else if Some(&ours.revision) == theirs.doc.replaces() {
-            // Theirs replaces ours, so adopt the tree and signatures, and sign
-            // off
-            let mut signatures = theirs.signatures.clone();
-            {
-                let sig = sign(signer, theirs.revision).map_err(error::Merge::Signer)?;
-                signatures.extend(Some(sig))
-            }
-
-            let content_id = self.commit(
-                &format!(
-                    "Approved new revision `{}` from {}",
-                    theirs.revision, theirs.content_id
-                ),
-                &signatures,
-                theirs.revision,
-                &[&ours, &theirs],
-            )?;
-
-            Ok(Identity {
-                content_id,
-                signatures,
-                doc: theirs.doc,
-                ..ours
-            })
-        } else {
-            Err(error::Merge::RevisionMismatch)
+        enum Action<T> {
+            NoOp(Identity<T>),
+            FastFwd(Identity<T>),
+            SameRev {
+                ours: Identity<T>,
+                theirs: Identity<T>,
+            },
+            SuccRev {
+                ours: Identity<T>,
+                theirs: Identity<T>,
+            },
         }
+
+        let apply = |action| match action {
+            Action::NoOp(ours) => Ok(ours),
+            Action::FastFwd(theirs) => Ok(theirs),
+            Action::SameRev { ours, theirs } => {
+                let mut signatures = ours.signatures.clone();
+                signatures.extend(theirs.signatures.clone());
+
+                let content_id = self.commit(
+                    &format!("Updated signatures from {}", theirs.content_id),
+                    &signatures,
+                    ours.revision,
+                    &[&ours, &theirs],
+                )?;
+
+                Ok(Identity {
+                    content_id,
+                    signatures,
+                    ..ours
+                })
+            },
+            Action::SuccRev { ours, theirs } => {
+                let mut signatures = theirs.signatures.clone();
+                {
+                    let sig = sign(signer, theirs.revision).map_err(error::Merge::Signer)?;
+                    signatures.extend(Some(sig))
+                }
+
+                let content_id = self.commit(
+                    &format!(
+                        "Approved new revision `{}` from {}",
+                        theirs.revision, theirs.content_id
+                    ),
+                    &signatures,
+                    theirs.revision,
+                    &[&ours, &theirs],
+                )?;
+
+                Ok(Identity {
+                    content_id,
+                    signatures,
+                    ..theirs
+                })
+            },
+        };
+
+        let action = {
+            if !ours.signatures.contains_key(&our_pk) {
+                Err(error::Merge::ForeignBase)
+            } else if ours.root != theirs.root {
+                Err(error::Merge::RootMismatch)
+            } else if self
+                .repo
+                .graph_descendant_of(ours.content_id.into(), theirs.content_id.into())?
+            {
+                Ok(Action::NoOp(ours))
+            } else if theirs.signatures.contains_key(&our_pk)
+                && self
+                    .repo
+                    .graph_descendant_of(theirs.content_id.into(), ours.content_id.into())?
+            {
+                Ok(Action::FastFwd(theirs))
+            } else if ours.revision == theirs.revision {
+                Ok(Action::SameRev { ours, theirs })
+            } else if Some(&ours.revision) == theirs.doc.replaces() {
+                Ok(Action::SuccRev { ours, theirs })
+            } else {
+                Err(error::Merge::RevisionMismatch)
+            }
+        }?;
+
+        apply(action)
     }
 
     //// Helpers ////

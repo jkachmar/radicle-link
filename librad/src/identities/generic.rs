@@ -324,7 +324,7 @@ impl<T, R, C> Verifying<Identity<T, R, C>, Untrusted> {
 
         let eligible = doc
             .eligible(signatures.keys().collect())
-            .map_err(error::Verify::delegation)?;
+            .map_err(error::Verify::eligibility)?;
         // `drain_filter` is such a strange API:
         //
         // "If the closure returns true, the element is removed from the map and
@@ -471,13 +471,13 @@ impl<T, R, C> Verifying<Identity<T, R, C>, Quorum> {
                     let votes = parent
                         .doc
                         .eligible(self.signatures.keys().collect())
-                        .map_err(error::Verify::delegation)?
+                        .map_err(error::Verify::eligibility)?
                         .len();
 
                     if votes > parent.doc.quorum_threshold() {
                         Ok(self.coerce())
                     } else {
-                        Err(error::Verify::Quorum)
+                        Err(error::Verify::ParentQuorum)
                     }
                 }
             },
@@ -533,10 +533,24 @@ impl<T, R, C> Verifying<Identity<T, R, C>, Verified> {
                 match signed.quorum() {
                     // Not reaching quorum is ok, skip
                     Err(_) => Ok(acc),
-                    Ok(quorum) => quorum.verified(Some(&acc.head)).map(|verified| Folded {
-                        head: verified,
-                        parent: Some(acc.head),
-                    }),
+                    Ok(quorum) => {
+                        // With merge-based workflows, this could be another
+                        // attestation of the previous one. We need to keep the
+                        // parent fixed in this case.
+                        if quorum.revision == acc.head.revision
+                            && quorum.doc.replaces() == acc.head.doc.replaces()
+                        {
+                            quorum.verified(acc.parent.as_ref()).map(|verified| Folded {
+                                head: verified,
+                                parent: acc.parent,
+                            })
+                        } else {
+                            quorum.verified(Some(&acc.head)).map(|verified| Folded {
+                                head: verified,
+                                parent: Some(acc.head),
+                            })
+                        }
+                    },
                 }
             },
         )

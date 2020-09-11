@@ -28,6 +28,7 @@ lazy_static! {
     // Keys
     static ref CHANTAL_SECRET: SecretKey = SecretKey::new();
     static ref DYLAN_SECRET: SecretKey = SecretKey::new();
+    static ref EVE_SECRET: SecretKey = SecretKey::new();
 
     // Payloads
     static ref CHANTAL_PAYLOAD: UserPayload = payload::User {
@@ -38,12 +39,29 @@ lazy_static! {
         name: "dylan".into()
     }
     .into();
+    static ref EVE_PAYLOAD: UserPayload = payload::User {
+        name: "eve".into()
+    }
+    .into();
     static ref CRUCIAL_PROJECT_PAYLOAD: ProjectPayload = payload::Project {
         name: "haskell-emoji".into(),
         description: Some("The most important software package in the world".into()),
         default_branch: Some("\u{1F32F}".into()),
     }
     .into();
+
+    // Delegations
+    static ref CHANTAL_DIRECT: delegation::Direct =
+        Some(CHANTAL_SECRET.public()).into_iter().collect();
+    static ref DYLAN_DIRECT: delegation::Direct =
+        Some(DYLAN_SECRET.public()).into_iter().collect();
+    static ref EVE_DIRECT: delegation::Direct =
+        Some(EVE_SECRET.public()).into_iter().collect();
+    static ref CHANTAL_AND_DYLAN_DIRECT: delegation::Direct =
+        vec![CHANTAL_SECRET.public(), DYLAN_SECRET.public()].into_iter().collect();
+    static ref CHANTAL_DYLAN_AND_EVE_DIRECT: delegation::Direct =
+        vec![CHANTAL_SECRET.public(), DYLAN_SECRET.public(), EVE_SECRET.public()]
+            .into_iter().collect();
 }
 
 type TmpRepo = WithTmpDir<git2::Repository>;
@@ -57,17 +75,13 @@ fn repo() -> Result<TmpRepo, Box<dyn std::error::Error>> {
 fn chantal(handle: &Git<'_, User>) -> Result<User, Box<dyn std::error::Error>> {
     Ok(handle.create(
         CHANTAL_PAYLOAD.clone(),
-        Some(CHANTAL_SECRET.public()).into_iter().collect(),
+        CHANTAL_DIRECT.clone(),
         &*CHANTAL_SECRET,
     )?)
 }
 
 fn dylan(handle: &Git<'_, User>) -> Result<User, Box<dyn std::error::Error>> {
-    Ok(handle.create(
-        DYLAN_PAYLOAD.clone(),
-        Some(DYLAN_SECRET.public()).into_iter().collect(),
-        &*DYLAN_SECRET,
-    )?)
+    Ok(handle.create(DYLAN_PAYLOAD.clone(), DYLAN_DIRECT.clone(), &*DYLAN_SECRET)?)
 }
 
 #[test]
@@ -76,9 +90,7 @@ fn create_user() -> Result<(), Box<dyn std::error::Error>> {
     let handle = Git::<User>::new(&repo);
 
     let chantal = chantal(&handle)?;
-    let real_chantal = handle.verify(*chantal.content_id)?.into_inner();
-
-    assert_eq!(chantal, real_chantal);
+    assert_eq!(handle.verify(*chantal.content_id)?.into_inner(), chantal);
 
     Ok(())
 }
@@ -89,31 +101,85 @@ fn update_user() -> Result<(), Box<dyn std::error::Error>> {
     let handle = Git::<User>::new(&repo);
 
     let chantal = chantal(&handle)?;
-    let chantal_revision = chantal.revision;
-
-    let chantal_and_dylan: delegation::Direct =
-        vec![CHANTAL_SECRET.public(), DYLAN_SECRET.public()]
-            .into_iter()
-            .collect();
 
     let chantal2 = handle.update(
         Verifying::from(chantal).signed()?,
         None,
-        Some(chantal_and_dylan),
+        CHANTAL_AND_DYLAN_DIRECT.clone(),
+        &*CHANTAL_SECRET,
+    )?;
+    // No quorum
+    assert_matches!(
+        Verifying::from(handle.get(*chantal2.content_id)?)
+            .signed()?
+            .quorum(),
+        Err(VerificationError::Quorum)
+    );
+
+    // Dylan can help tho
+    let dylan = handle.create_from(Verifying::from(chantal2).signed()?, &*DYLAN_SECRET)?;
+    assert_eq!(handle.verify(*dylan.content_id)?.into_inner(), dylan);
+
+    Ok(())
+}
+
+#[test]
+fn user_revoke_delegation() -> Result<(), Box<dyn std::error::Error>> {
+    let repo = repo()?;
+    let handle = Git::<User>::new(&repo);
+
+    // Kickstart
+    let chantal = chantal(&handle)?;
+
+    // <3 Dylan
+    let chantal2 = handle.update(
+        Verifying::from(chantal).signed()?,
+        None,
+        CHANTAL_DYLAN_AND_EVE_DIRECT.clone(),
         &*CHANTAL_SECRET,
     )?;
 
-    // chantal2 doesn't reach quorum, so verify should yield the initial revision
-    assert_eq!(
-        handle.verify(*chantal2.content_id)?.revision,
-        chantal_revision
+    // Approve mutually
+    let dylan = handle.create_from(Verifying::from(chantal2.clone()).signed()?, &*DYLAN_SECRET)?;
+    let eve = handle.create_from(Verifying::from(chantal2.clone()).signed()?, &*EVE_SECRET)?;
+    let chantal3 = {
+        let merge_dylan = handle.update_from(
+            Verifying::from(chantal2).signed()?,
+            Verifying::from(dylan.clone()).signed()?,
+            &*CHANTAL_SECRET,
+        )?;
+        handle.update_from(
+            Verifying::from(merge_dylan).signed()?,
+            Verifying::from(eve).signed()?,
+            &*CHANTAL_SECRET,
+        )
+    }?;
+
+    assert_eq!(handle.verify(*chantal3.content_id)?.into_inner(), chantal3);
+
+    // Kick out eve
+    let chantal4 = handle.update(
+        Verifying::from(chantal3).signed()?,
+        None,
+        CHANTAL_AND_DYLAN_DIRECT.clone(),
+        &*CHANTAL_SECRET,
+    )?;
+    // That doesn't reach quorum, so we should get chantal3 back
+    assert_matches!(
+        Verifying::from(handle.get(*chantal4.content_id)?)
+            .signed()?
+            .quorum(),
+        Err(VerificationError::Quorum)
     );
 
-    // Dylan can help to reach the quorum, tho
-    let dylan = handle.create_from(Verifying::from(chantal2).signed()?, &*DYLAN_SECRET)?;
-    let real_dylan = handle.verify(*dylan.content_id)?.into_inner();
-
-    assert_eq!(dylan, real_dylan);
+    // Dylan doesn't like Eve, either
+    let dylan2 = handle.update_from(
+        Verifying::from(dylan).signed()?,
+        Verifying::from(chantal4).signed()?,
+        &*DYLAN_SECRET,
+    )?;
+    // So that checks out
+    assert_eq!(handle.verify(*dylan2.content_id)?.into_inner(), dylan2);
 
     Ok(())
 }
@@ -132,11 +198,12 @@ fn create_project() -> Result<(), Box<dyn std::error::Error>> {
         delegations,
         &*CHANTAL_SECRET,
     )?;
-    let real_hs_emoji = handle
-        .verify::<_, !>(*hs_emoji.content_id, |_| Ok(*chantal_head))?
-        .into_inner();
-
-    assert_eq!(hs_emoji, real_hs_emoji);
+    assert_eq!(
+        handle
+            .verify::<_, !>(*hs_emoji.content_id, |_| Ok(*chantal_head))?
+            .into_inner(),
+        hs_emoji
+    );
 
     Ok(())
 }
@@ -169,28 +236,31 @@ fn update_project() -> Result<(), Box<dyn std::error::Error>> {
         IndirectDelegation::try_from_iter(Some(Right(chantal.clone())))?,
         &*CHANTAL_SECRET,
     )?;
-    let hs_emoji_revision = hs_emoji.revision;
-
+    assert_eq!(
+        handle
+            .verify::<_, !>(*hs_emoji.content_id, resolve_latest)?
+            .into_inner(),
+        hs_emoji
+    );
     let hs_emoji2 = handle.update(
         Verifying::from(hs_emoji).signed()?,
         None,
         IndirectDelegation::try_from_iter(vec![Right(chantal), Right(dylan)])?,
         &*CHANTAL_SECRET,
     )?;
-
-    // hs_emoji2 doesn't reach quorum, so verify should yield the initial revision
-    assert_eq!(
-        handle
-            .verify::<_, !>(*hs_emoji2.content_id, resolve_latest)?
-            .revision,
-        hs_emoji_revision
+    // No quorum yet
+    assert_matches!(
+        Verifying::from(handle.get(*hs_emoji2.content_id)?)
+            .signed()?
+            .quorum(),
+        Err(VerificationError::Quorum)
     );
 
     // So dylan, approve s'il vous plait
     let dylans_emoji = handle.create_from(Verifying::from(hs_emoji2).signed()?, &*DYLAN_SECRET)?;
     assert_eq!(
         handle
-            .verify(*dylans_emoji.content_id, resolve_latest)?
+            .verify::<_, !>(*dylans_emoji.content_id, resolve_latest)?
             .into_inner(),
         dylans_emoji
     );

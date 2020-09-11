@@ -35,6 +35,9 @@ where
     #[error("quorum not reached")]
     Quorum,
 
+    #[error("quorum on parent not reached")]
+    ParentQuorum,
+
     #[error("expected parent {expected}, found {actual}")]
     ParentMismatch {
         expected: Revision,
@@ -57,7 +60,7 @@ where
     EmptyHistory,
 
     #[error("non-eligible delegation")]
-    Delegation(#[source] Box<dyn std::error::Error + 'static>),
+    Eligibility(#[source] Box<dyn std::error::Error + 'static>),
 
     #[error("error traversing the identity history")]
     History(#[source] Box<dyn std::error::Error + 'static>),
@@ -68,11 +71,11 @@ where
     R: Display + Debug + 'static,
     C: Display + Debug + 'static,
 {
-    pub fn delegation<E>(e: E) -> Self
+    pub fn eligibility<E>(e: E) -> Self
     where
         E: std::error::Error + 'static,
     {
-        Self::Delegation(Box::new(e))
+        Self::Eligibility(Box::new(e))
     }
 
     pub fn history<E>(e: E) -> Self
