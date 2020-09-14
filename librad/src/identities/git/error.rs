@@ -67,7 +67,7 @@ pub enum Load {
 }
 
 #[derive(Debug, Error)]
-pub enum Store<S: std::error::Error + 'static> {
+pub enum Store<S: std::error::Error + Send + Sync + 'static> {
     #[error(transparent)]
     Load(#[from] self::Load),
 
@@ -82,7 +82,7 @@ pub enum Store<S: std::error::Error + 'static> {
 }
 
 #[derive(Debug, Error)]
-pub enum Merge<S: std::error::Error + 'static> {
+pub enum Merge<S: std::error::Error + Send + Sync + 'static> {
     #[error("attempt to update an identity not previously signed by us")]
     ForeignBase,
 
@@ -115,7 +115,7 @@ pub enum Signatures {
 }
 
 #[derive(Debug, Error)]
-pub enum VerifyProject<E: std::error::Error + 'static> {
+pub enum VerifyProject<E: std::error::Error + Send + Sync + 'static> {
     #[error("error resolving latest head")]
     Lookup(#[source] E),
 

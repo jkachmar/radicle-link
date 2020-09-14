@@ -60,10 +60,10 @@ where
     EmptyHistory,
 
     #[error("non-eligible delegation")]
-    Eligibility(#[source] Box<dyn std::error::Error + 'static>),
+    Eligibility(#[source] Box<dyn std::error::Error + Send + Sync + 'static>),
 
     #[error("error traversing the identity history")]
-    History(#[source] Box<dyn std::error::Error + 'static>),
+    History(#[source] Box<dyn std::error::Error + Send + Sync + 'static>),
 }
 
 impl<R, C> Verify<R, C>
@@ -73,14 +73,14 @@ where
 {
     pub fn eligibility<E>(e: E) -> Self
     where
-        E: std::error::Error + 'static,
+        E: std::error::Error + Send + Sync + 'static,
     {
         Self::Eligibility(Box::new(e))
     }
 
     pub fn history<E>(e: E) -> Self
     where
-        E: std::error::Error + 'static,
+        E: std::error::Error + Send + Sync + 'static,
     {
         Self::History(Box::new(e))
     }

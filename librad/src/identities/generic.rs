@@ -305,7 +305,7 @@ impl<T, R, C> Verifying<Identity<T, R, C>, Untrusted> {
     pub fn signed(self) -> Result<Verifying<Identity<T, R, C>, Signed>, error::Verify<R, C>>
     where
         T: Delegations,
-        T::Error: std::error::Error + 'static,
+        T::Error: std::error::Error + Send + Sync + 'static,
 
         R: Debug + Display + AsRef<[u8]>,
         C: Debug + Display,
@@ -329,7 +329,7 @@ impl<T, R, C> Verifying<Identity<T, R, C>, Untrusted> {
     pub fn quorum(self) -> Result<Verifying<Identity<T, R, C>, Quorum>, error::Verify<R, C>>
     where
         T: Delegations,
-        T::Error: std::error::Error + 'static,
+        T::Error: std::error::Error + Send + Sync + 'static,
 
         R: Debug + Display + AsRef<[u8]>,
         C: Debug + Display,
@@ -346,7 +346,7 @@ impl<T, R, C> Verifying<Identity<T, R, C>, Untrusted> {
     ) -> Result<Verifying<Identity<T, R, C>, Verified>, error::Verify<R, C>>
     where
         T: Delegations + Replaces<Revision = R>,
-        T::Error: std::error::Error + 'static,
+        T::Error: std::error::Error + Send + Sync + 'static,
 
         R: Clone + Debug + Display + PartialEq + AsRef<[u8]>,
         C: Clone + Debug + Display,
@@ -365,7 +365,7 @@ impl<T, R, C> Verifying<Identity<T, R, C>, Signed> {
     pub fn quorum(self) -> Result<Verifying<Identity<T, R, C>, Quorum>, error::Verify<R, C>>
     where
         T: Delegations,
-        T::Error: std::error::Error + 'static,
+        T::Error: std::error::Error + Send + Sync + 'static,
 
         R: Debug + Display,
         C: Debug + Display,
@@ -410,7 +410,7 @@ impl<T, R, C> Verifying<Identity<T, R, C>, Quorum> {
     ) -> Result<Verifying<Identity<T, R, C>, Verified>, error::Verify<R, C>>
     where
         T: Delegations + Replaces<Revision = R>,
-        T::Error: std::error::Error + 'static,
+        T::Error: std::error::Error + Send + Sync + 'static,
 
         R: Clone + Debug + Display + PartialEq + AsRef<[u8]>,
         C: Clone + Debug + Display,
@@ -483,12 +483,12 @@ impl<T, R, C> Verifying<Identity<T, R, C>, Verified> {
     ) -> Result<Folded<T, R, C>, error::Verify<R, C>>
     where
         T: Delegations + Replaces<Revision = R>,
-        T::Error: std::error::Error + 'static,
+        T::Error: std::error::Error + Send + Sync + 'static,
 
         R: Clone + Debug + Display + PartialEq + AsRef<[u8]>,
         C: Clone + Debug + Display,
 
-        E: std::error::Error + 'static,
+        E: std::error::Error + Send + Sync + 'static,
     {
         progeny.try_fold(
             Folded {

@@ -80,6 +80,7 @@ pub type VerificationError = generic::error::Verify<Revision, ContentId>;
 
 pub type IndirectDelegation = delegation::Indirect<UserPayload, Revision, ContentId>;
 
+#[derive(Clone)]
 pub struct Git<'a, T> {
     repo: &'a git2::Repository,
     _marker: PhantomData<T>,
@@ -149,7 +150,7 @@ impl<'a, T: 'a> Git<'a, T> {
     ) -> Result<VerifiedIdentity<Doc>, VerificationError>
     where
         Doc: Delegations + generic::Replaces<Revision = Revision>,
-        <Doc as Delegations>::Error: std::error::Error + 'static,
+        <Doc as Delegations>::Error: std::error::Error + Send + Sync + 'static,
 
         Identity<Doc>: TryFrom<ByOid<'a>, Error = error::Load>,
     {
@@ -162,7 +163,7 @@ impl<'a, T: 'a> Git<'a, T> {
     ) -> Result<generic::Folded<Doc, Revision, ContentId>, VerificationError>
     where
         Doc: Delegations + generic::Replaces<Revision = Revision>,
-        <Doc as Delegations>::Error: std::error::Error + 'static,
+        <Doc as Delegations>::Error: std::error::Error + Send + Sync + 'static,
 
         Identity<Doc>: TryFrom<ByOid<'a>, Error = error::Load>,
     {
@@ -217,7 +218,7 @@ where
     ) -> Result<Identity<T>, error::Store<S::Error>>
     where
         S: Signer,
-        S::Error: std::error::Error,
+        S::Error: std::error::Error + Send + Sync,
     {
         let mut signatures = theirs.signatures.clone();
         {
@@ -272,7 +273,7 @@ where
     ) -> Result<Identity<T>, error::Merge<S::Error>>
     where
         S: Signer,
-        S::Error: std::error::Error,
+        S::Error: std::error::Error + Send + Sync,
     {
         let ours = ours.into_inner();
         let theirs = theirs.into_inner();
@@ -415,7 +416,7 @@ impl<'a> Git<'a, User> {
     ) -> Result<User, error::Store<S::Error>>
     where
         S: Signer,
-        S::Error: std::error::Error + 'static,
+        S::Error: std::error::Error + Send + Sync + 'static,
     {
         let doc = Doc {
             version: 0,
@@ -463,7 +464,7 @@ impl<'a> Git<'a, User> {
     ) -> Result<User, error::Store<S::Error>>
     where
         S: Signer,
-        S::Error: std::error::Error + 'static,
+        S::Error: std::error::Error + Send + Sync + 'static,
     {
         let payload = payload.into();
         let delegations = delegations.into();
@@ -537,7 +538,7 @@ impl<'a> Git<'a, Project> {
     ) -> Result<VerifiedProject, error::VerifyProject<E>>
     where
         F: Fn(Urn<Revision>) -> Result<git2::Oid, E>,
-        E: std::error::Error,
+        E: std::error::Error + Send + Sync,
     {
         let generic::Folded { head, parent } = self.fold_verify_generic::<ProjectDoc>(head)?;
         let head = head
@@ -567,7 +568,7 @@ impl<'a> Git<'a, Project> {
     ) -> Result<Project, error::Store<S::Error>>
     where
         S: Signer,
-        S::Error: std::error::Error + 'static,
+        S::Error: std::error::Error + Send + Sync + 'static,
     {
         let doc = Doc {
             version: 0,
@@ -616,7 +617,7 @@ impl<'a> Git<'a, Project> {
     ) -> Result<Project, error::Store<S::Error>>
     where
         S: Signer,
-        S::Error: std::error::Error + 'static,
+        S::Error: std::error::Error + Send + Sync + 'static,
     {
         let payload = payload.into();
         let delegations = delegations.into();
@@ -681,7 +682,7 @@ impl<'a> Git<'a, Project> {
     where
         I: IntoIterator<Item = Either<PublicKey, User>>,
         F: Fn(Urn<Revision>) -> Result<git2::Oid, E>,
-        E: std::error::Error,
+        E: std::error::Error + Send + Sync,
     {
         let mut updated = Vec::new();
         for delegation in current {
@@ -726,7 +727,7 @@ impl<'a> Git<'a, Project> {
         delegations: &IndirectDelegation,
     ) -> Result<(), error::Store<E>>
     where
-        E: std::error::Error,
+        E: std::error::Error + Send + Sync,
     {
         let mut builder = self.repo.treebuilder(None)?;
         for user_delegation in delegations.iter().filter_map(|x| x.right()) {

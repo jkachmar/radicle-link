@@ -24,6 +24,8 @@ use pretty_assertions::assert_eq;
 
 use super::*;
 
+mod user;
+
 lazy_static! {
     // Keys
     static ref CHANTAL_SECRET: SecretKey = SecretKey::new();
@@ -66,7 +68,7 @@ lazy_static! {
 
 type TmpRepo = WithTmpDir<git2::Repository>;
 
-fn repo() -> Result<TmpRepo, Box<dyn std::error::Error>> {
+fn repo() -> anyhow::Result<TmpRepo> {
     Ok(WithTmpDir::new(|path| {
         let setup = || {
             let repo = git2::Repository::init(path)?;
@@ -82,7 +84,7 @@ fn repo() -> Result<TmpRepo, Box<dyn std::error::Error>> {
     })?)
 }
 
-fn chantal(handle: &Git<'_, User>) -> Result<User, Box<dyn std::error::Error>> {
+fn chantal(handle: &Git<'_, User>) -> anyhow::Result<User> {
     Ok(handle.create(
         CHANTAL_PAYLOAD.clone(),
         CHANTAL_DIRECT.clone(),
@@ -90,112 +92,12 @@ fn chantal(handle: &Git<'_, User>) -> Result<User, Box<dyn std::error::Error>> {
     )?)
 }
 
-fn dylan(handle: &Git<'_, User>) -> Result<User, Box<dyn std::error::Error>> {
+fn dylan(handle: &Git<'_, User>) -> anyhow::Result<User> {
     Ok(handle.create(DYLAN_PAYLOAD.clone(), DYLAN_DIRECT.clone(), &*DYLAN_SECRET)?)
 }
 
 #[test]
-fn create_user() -> Result<(), Box<dyn std::error::Error>> {
-    let repo = repo()?;
-    let handle = Git::<User>::new(&repo);
-
-    let chantal = chantal(&handle)?;
-    assert_eq!(handle.verify(*chantal.content_id)?.into_inner(), chantal);
-
-    Ok(())
-}
-
-#[test]
-fn update_user() -> Result<(), Box<dyn std::error::Error>> {
-    let repo = repo()?;
-    let handle = Git::<User>::new(&repo);
-
-    let chantal = chantal(&handle)?;
-
-    let chantal2 = handle.update(
-        Verifying::from(chantal).signed()?,
-        None,
-        CHANTAL_AND_DYLAN_DIRECT.clone(),
-        &*CHANTAL_SECRET,
-    )?;
-    // No quorum
-    assert_matches!(
-        Verifying::from(handle.get(*chantal2.content_id)?)
-            .signed()?
-            .quorum(),
-        Err(VerificationError::Quorum)
-    );
-
-    // Dylan can help tho
-    let dylan = handle.create_from(Verifying::from(chantal2).signed()?, &*DYLAN_SECRET)?;
-    assert_eq!(handle.verify(*dylan.content_id)?.into_inner(), dylan);
-
-    Ok(())
-}
-
-#[test]
-fn user_revoke_delegation() -> Result<(), Box<dyn std::error::Error>> {
-    let repo = repo()?;
-    let handle = Git::<User>::new(&repo);
-
-    // Kickstart
-    let chantal = chantal(&handle)?;
-
-    // <3 Dylan
-    let chantal2 = handle.update(
-        Verifying::from(chantal).signed()?,
-        None,
-        CHANTAL_DYLAN_AND_EVE_DIRECT.clone(),
-        &*CHANTAL_SECRET,
-    )?;
-
-    // Approve mutually
-    let dylan = handle.create_from(Verifying::from(chantal2.clone()).signed()?, &*DYLAN_SECRET)?;
-    let eve = handle.create_from(Verifying::from(chantal2.clone()).signed()?, &*EVE_SECRET)?;
-    let chantal3 = {
-        let merge_dylan = handle.update_from(
-            Verifying::from(chantal2).signed()?,
-            Verifying::from(dylan.clone()).signed()?,
-            &*CHANTAL_SECRET,
-        )?;
-        handle.update_from(
-            Verifying::from(merge_dylan).signed()?,
-            Verifying::from(eve).signed()?,
-            &*CHANTAL_SECRET,
-        )
-    }?;
-
-    assert_eq!(handle.verify(*chantal3.content_id)?.into_inner(), chantal3);
-
-    // Kick out eve
-    let chantal4 = handle.update(
-        Verifying::from(chantal3).signed()?,
-        None,
-        CHANTAL_AND_DYLAN_DIRECT.clone(),
-        &*CHANTAL_SECRET,
-    )?;
-    // That doesn't reach quorum, so we should get chantal3 back
-    assert_matches!(
-        Verifying::from(handle.get(*chantal4.content_id)?)
-            .signed()?
-            .quorum(),
-        Err(VerificationError::Quorum)
-    );
-
-    // Dylan doesn't like Eve, either
-    let dylan2 = handle.update_from(
-        Verifying::from(dylan).signed()?,
-        Verifying::from(chantal4).signed()?,
-        &*DYLAN_SECRET,
-    )?;
-    // So that checks out
-    assert_eq!(handle.verify(*dylan2.content_id)?.into_inner(), dylan2);
-
-    Ok(())
-}
-
-#[test]
-fn create_project() -> Result<(), Box<dyn std::error::Error>> {
+fn create_project() -> anyhow::Result<()> {
     let repo = repo()?;
     let handle = Git::<Project>::new(&repo);
 
@@ -219,7 +121,7 @@ fn create_project() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 #[test]
-fn update_project() -> Result<(), Box<dyn std::error::Error>> {
+fn update_project() -> anyhow::Result<()> {
     let repo = repo()?;
     let handle = Git::<Project>::new(&repo);
 
