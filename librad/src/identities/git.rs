@@ -279,23 +279,45 @@ where
 
         let our_pk = signer.public_key().into();
 
-        enum Action<T> {
-            NoOp(Identity<T>),
-            FastFwd(Identity<T>),
-            SameRev {
-                ours: Identity<T>,
-                theirs: Identity<T>,
-            },
-            SuccRev {
-                ours: Identity<T>,
-                theirs: Identity<T>,
-            },
+        #[derive(Debug)]
+        enum Action {
+            Uptodate,
+            FastFwd,
+            SlowFwd,
+            SuccRev,
         }
 
-        let apply = |action| match action {
-            Action::NoOp(ours) => Ok(ours),
-            Action::FastFwd(theirs) => Ok(theirs),
-            Action::SameRev { ours, theirs } => {
+        let action = {
+            if !ours.signatures.contains_key(&our_pk) {
+                Err(error::Merge::ForeignBase)
+            } else if ours.root != theirs.root {
+                Err(error::Merge::RootMismatch)
+            } else if self
+                .repo
+                .graph_descendant_of(*ours.content_id, *theirs.content_id)?
+            {
+                Ok(Action::Uptodate)
+            } else if theirs.signatures.contains_key(&our_pk)
+                && self
+                    .repo
+                    .graph_descendant_of(*theirs.content_id, *ours.content_id)?
+            {
+                Ok(Action::FastFwd)
+            } else if ours.revision == theirs.revision {
+                Ok(Action::SlowFwd)
+            } else if Some(&ours.revision) == theirs.doc.replaces() {
+                Ok(Action::SuccRev)
+            } else {
+                Err(error::Merge::RevisionMismatch)
+            }
+        }?;
+
+        println!("action: {:?}", action);
+
+        match action {
+            Action::Uptodate => Ok(ours),
+            Action::FastFwd => Ok(theirs),
+            Action::SlowFwd => {
                 let mut signatures = ours.signatures.clone();
                 signatures.extend(theirs.signatures.clone());
 
@@ -312,7 +334,7 @@ where
                     ..ours
                 })
             },
-            Action::SuccRev { ours, theirs } => {
+            Action::SuccRev => {
                 let mut signatures = theirs.signatures.clone();
                 {
                     let sig = sign(signer, theirs.revision).map_err(error::Merge::Signer)?;
@@ -335,34 +357,7 @@ where
                     ..theirs
                 })
             },
-        };
-
-        let action = {
-            if !ours.signatures.contains_key(&our_pk) {
-                Err(error::Merge::ForeignBase)
-            } else if ours.root != theirs.root {
-                Err(error::Merge::RootMismatch)
-            } else if self
-                .repo
-                .graph_descendant_of(ours.content_id.into(), theirs.content_id.into())?
-            {
-                Ok(Action::NoOp(ours))
-            } else if theirs.signatures.contains_key(&our_pk)
-                && self
-                    .repo
-                    .graph_descendant_of(theirs.content_id.into(), ours.content_id.into())?
-            {
-                Ok(Action::FastFwd(theirs))
-            } else if ours.revision == theirs.revision {
-                Ok(Action::SameRev { ours, theirs })
-            } else if Some(&ours.revision) == theirs.doc.replaces() {
-                Ok(Action::SuccRev { ours, theirs })
-            } else {
-                Err(error::Merge::RevisionMismatch)
-            }
-        }?;
-
-        apply(action)
+        }
     }
 
     //// Helpers ////
