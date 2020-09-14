@@ -54,10 +54,10 @@ proptest! {
             ..id
         };
 
-        assert!(matches!(
+        assert_matches!(
             Verifying::from(id).quorum(),
             Err(error::Verify::Quorum)
-        ))
+        )
     }
 
     #[test]
@@ -108,7 +108,7 @@ proptest! {
         }))
         .verified(Some(&parent));
 
-        assert!(matches!(child, Err(error::Verify::DanglingParent { .. })))
+        assert_matches!(child, Err(error::Verify::DanglingParent { .. }))
     }
 
     #[test]
@@ -124,7 +124,7 @@ proptest! {
         .unwrap();
         let child = Verifying::from(id).verified(Some(&parent));
 
-        assert!(matches!(child, Err(error::Verify::RootMismatch { .. })))
+        assert_matches!(child, Err(error::Verify::RootMismatch { .. }))
     }
 
     #[test]
@@ -138,7 +138,7 @@ proptest! {
             ..doc
         })).verified(Some(&parent));
 
-        assert!(matches!(child, Err(error::Verify::ParentMismatch { .. })))
+        assert_matches!(child, Err(error::Verify::ParentMismatch { .. }))
     }
 
     #[test]
@@ -161,10 +161,10 @@ proptest! {
                     ..next.clone()
                 };
 
-                assert!(matches!(
+                assert_matches!(
                     Verifying::from(next).verified(Some(&parent)),
                     Err(error::Verify::Quorum)
-                ))
+                )
             },
 
             _ => unreachable!(),
