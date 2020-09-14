@@ -303,7 +303,7 @@ where
                     &format!("Updated signatures from {}", theirs.content_id),
                     &signatures,
                     ours.revision,
-                    &[&ours, &theirs],
+                    &[&ours],
                 )?;
 
                 Ok(Identity {

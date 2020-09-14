@@ -299,12 +299,9 @@ impl<T, R, C> Verifying<Identity<T, R, C>, Untrusted> {
     /// Attempt to transition an [`Untrusted`] [`Identity`] to the [`Signed`]
     /// state.
     ///
-    /// Will retain only the valid and [`Delegations::eligible`] signatures in
-    /// `T`.
-    ///
     /// # Errors
     ///
-    /// If the set of valid and eligible signatures is empty.
+    /// If the set of signatures is empty, or one or more signatures are invlid.
     pub fn signed(self) -> Result<Verifying<Identity<T, R, C>, Signed>, error::Verify<R, C>>
     where
         T: Delegations,
@@ -313,51 +310,16 @@ impl<T, R, C> Verifying<Identity<T, R, C>, Untrusted> {
         R: Debug + Display + AsRef<[u8]>,
         C: Debug + Display,
     {
-        let Identity {
-            content_id,
-            root,
-            revision,
-            doc,
-            mut signatures,
-            ..
-        } = self.inner;
-
-        let eligible = doc
-            .eligible(signatures.keys().collect())
-            .map_err(error::Verify::eligibility)?;
-        // `drain_filter` is such a strange API:
-        //
-        // "If the closure returns true, the element is removed from the map and
-        // yielded. If the closure returns false, or panics, the element remains
-        // in the map and will not be yielded.
-        //
-        // [...]
-        //
-        // If the iterator is only partially consumed or not consumed at all,
-        // each of the remaining elements will still be subjected to the closure
-        // and removed and dropped if it returns true."
-        //
-        // So, if we drop the iterator, it behaves like `HashMap::retain`, only
-        // with the predicate reversed.
-        signatures
-            .drain_filter(|pk, sig| !(eligible.contains(&pk) && sig.verify(revision.as_ref(), pk)));
-
-        if !signatures.is_empty() {
-            Ok(Verifying {
-                inner: Identity {
-                    content_id,
-                    root,
-                    revision,
-                    doc,
-                    signatures,
-                },
-                state: PhantomData,
-            })
+        if self.signatures.is_empty() {
+            Err(error::Verify::NoSignatures)
+        } else if !self
+            .signatures
+            .iter()
+            .all(|(pk, sig)| sig.verify(self.revision.as_ref(), pk))
+        {
+            Err(error::Verify::SignatureVerification)
         } else {
-            Err(error::Verify::NoValidSignatures {
-                revision,
-                content_id,
-            })
+            Ok(self.coerce())
         }
     }
 
@@ -408,7 +370,13 @@ impl<T, R, C> Verifying<Identity<T, R, C>, Signed> {
         R: Debug + Display,
         C: Debug + Display,
     {
-        if self.signatures.len() > self.doc.quorum_threshold() {
+        let eligible = self
+            .doc
+            .eligible(self.signatures.keys().collect())
+            .map_err(error::Verify::eligibility)?
+            .len();
+
+        if eligible > self.doc.quorum_threshold() {
             Ok(self.coerce())
         } else {
             Err(error::Verify::Quorum)
@@ -534,16 +502,22 @@ impl<T, R, C> Verifying<Identity<T, R, C>, Verified> {
                     // Not reaching quorum is ok, skip
                     Err(_) => Ok(acc),
                     Ok(quorum) => {
-                        // With merge-based workflows, this could be another
-                        // attestation of the previous one. We need to keep the
-                        // parent fixed in this case.
+                        // A confirmation of `self` is ok, but `parent` stays
+                        // the same then. We need to be careful to not let a
+                        // current quorum invalidate our already-confirmed state
+                        // -- so skip if this doesn't pass `verified`, instead
+                        // of returning an error (which would render this
+                        // history invalid).
                         if quorum.revision == acc.head.revision
                             && quorum.doc.replaces() == acc.head.doc.replaces()
                         {
-                            quorum.verified(acc.parent.as_ref()).map(|verified| Folded {
-                                head: verified,
-                                parent: acc.parent,
-                            })
+                            match quorum.verified(acc.parent.as_ref()) {
+                                Err(_) => Ok(acc),
+                                Ok(verified) => Ok(Folded {
+                                    head: verified,
+                                    parent: acc.parent,
+                                }),
+                            }
                         } else {
                             quorum.verified(Some(&acc.head)).map(|verified| Folded {
                                 head: verified,
