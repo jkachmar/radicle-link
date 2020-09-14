@@ -20,14 +20,17 @@ use std::{
     io,
     net::{IpAddr, SocketAddr},
     sync::{Arc, Mutex},
+    time::Duration,
 };
 
 use either::Either;
 use futures::{
-    future::{self, BoxFuture},
+    future::{self, BoxFuture, FutureExt},
     stream::StreamExt,
 };
+use futures_timer::Delay;
 use thiserror::Error;
+use tracing_futures::Instrument as _;
 
 use crate::{
     git::{
@@ -190,32 +193,57 @@ where
     /// [`RadUrn`] actually has it, nor that it is reachable using any of
     /// the addresses contained in [`PeerInfo`]. The implementation may
     /// change in the future to answer the query from a local cache first.
+    ///
+    /// The returned [`futures::Stream`] will be complete after the supplied
+    /// `timeout` has elapsed, whether or not any responses have been yielded
+    /// thus far. This is to prevent callers from polling the stream
+    /// indefinitely, even though no more responses can be expected. A realistic
+    /// timeout value is in the order of 10s of seconds.
     pub fn providers(
         &self,
         urn: RadUrn,
+        timeout: Duration,
     ) -> impl Future<Output = impl futures::Stream<Item = PeerInfo<IpAddr>>> {
+        let span = tracing::trace_span!("PeerApi::providers", urn = %urn);
         let protocol = self.protocol.clone();
-        let urn2 = urn.clone();
+        let target_urn = urn.clone();
+
         async move {
-            let events = protocol.subscribe().await.filter_map(move |evt| {
-                future::ready(match evt {
-                    ProtocolEvent::Gossip(gossip::Info::Has(gossip::Has { provider, val }))
-                        if val.urn == urn =>
-                    {
-                        Some(provider)
-                    },
-                    _ => None,
-                })
-            });
+            let providers = futures::stream::select(
+                futures::stream::once(
+                    async move {
+                        Delay::new(timeout).await;
+                        Err("timed out")
+                    }
+                    .boxed(),
+                ),
+                protocol
+                    .subscribe()
+                    .await
+                    .filter_map(move |evt| {
+                        future::ready(match evt {
+                            ProtocolEvent::Gossip(gossip::Info::Has(gossip::Has {
+                                provider,
+                                val,
+                            })) if val.urn == urn => Some(provider),
+                            _ => None,
+                        })
+                    })
+                    .map(Ok),
+            )
+            .take_while(|x| future::ready(x.is_ok()))
+            .map(Result::unwrap);
+
             protocol
                 .query(Gossip {
-                    urn: urn2,
+                    urn: target_urn,
                     rev: None,
                     origin: None,
                 })
+                .instrument(span)
                 .await;
 
-            events
+            providers
         }
     }
 
@@ -436,26 +464,30 @@ where
 
         match has.urn.proto {
             uri::Protocol::Git => {
+                let peer_id = has.origin.clone().unwrap_or_else(|| provider.clone());
+                let is_tracked = match self.inner.lock().unwrap().is_tracked(&has.urn, &peer_id) {
+                    Ok(b) => b,
+                    Err(e) => {
+                        tracing::error!(err = %e, "Git::Storage::is_tracked error");
+                        return PutResult::Error;
+                    },
+                };
                 let res = match has.rev {
                     // TODO: may need to fetch eagerly if we tracked while offline (#141)
-                    None => PutResult::Uninteresting,
-                    Some(Rev::Git(head)) => {
+                    Some(Rev::Git(head)) if is_tracked => {
                         let res = {
                             let this = self.clone();
                             let provider = provider.clone();
                             let has = has.clone();
+                            let urn = match has.origin {
+                                Some(origin) => Either::Right(Originates {
+                                    from: origin,
+                                    value: has.urn,
+                                }),
+                                None => Either::Left(has.urn),
+                            };
                             tokio::task::spawn_blocking(move || {
-                                this.git_fetch(
-                                    &provider,
-                                    match has.origin {
-                                        Some(origin) => Either::Right(Originates {
-                                            from: origin,
-                                            value: has.urn,
-                                        }),
-                                        None => Either::Left(has.urn),
-                                    },
-                                    head,
-                                )
+                                this.git_fetch(&provider, urn, head)
                             })
                             .await
                             .unwrap()
@@ -463,7 +495,9 @@ where
 
                         match res {
                             Ok(()) => {
-                                if !self.ask(has.clone()).await {
+                                if self.ask(has.clone()).await {
+                                    PutResult::Applied
+                                } else {
                                     tracing::warn!(
                                         provider = %provider,
                                         has.origin = ?has.origin,
@@ -471,8 +505,6 @@ where
                                         "Provider announced non-existent rev"
                                     );
                                     PutResult::Stale
-                                } else {
-                                    PutResult::Applied
                                 }
                             },
                             Err(e) => match e {
@@ -487,6 +519,9 @@ where
                             },
                         }
                     },
+                    // The update is uninteresting if it refers to no revision
+                    // or if its originated by a peer we are not tracking.
+                    _ => PutResult::Uninteresting,
                 };
 
                 self.subscribers
