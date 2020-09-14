@@ -68,7 +68,17 @@ type TmpRepo = WithTmpDir<git2::Repository>;
 
 fn repo() -> Result<TmpRepo, Box<dyn std::error::Error>> {
     Ok(WithTmpDir::new(|path| {
-        git2::Repository::init(path).map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+        let setup = || {
+            let repo = git2::Repository::init(path)?;
+
+            // We need to set user info to _something_, but that doesn't have to
+            // be valid, as we're using a shared repo with many keys
+            let mut config = repo.config()?;
+            config.set_str("user.name", "shared")?;
+            config.set_str("user.email", "not.relevant@for.testing")?;
+            Ok(repo)
+        };
+        setup().map_err(|e: git2::Error| io::Error::new(io::ErrorKind::Other, e))
     })?)
 }
 
