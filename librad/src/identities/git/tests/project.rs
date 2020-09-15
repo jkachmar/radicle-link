@@ -101,8 +101,6 @@ fn revoke() -> anyhow::Result<()> {
             },
         )?;
 
-        let heads = current_heads_from(vec![&cheyenne, &dylan]);
-
         let cheyennes = {
             let update = IndirectDelegation::try_from_iter(vec![
                 Right(cheyenne.current().clone()),
@@ -111,6 +109,8 @@ fn revoke() -> anyhow::Result<()> {
             common::Project::new(cheyenne.clone())?.update(update)
         }?;
         cheyennes.assert_no_quorum()?;
+
+        let heads = current_heads_from(vec![&cheyenne, &dylan]);
 
         let dylans = common::Project::create_from(dylan, &cheyennes)?;
         dylans.assert_verifies(lookup(&heads))?;
@@ -167,8 +167,6 @@ fn revoke_indirect() -> anyhow::Result<()> {
             },
         )?;
 
-        let heads = current_heads_from(vec![&cheyenne_desktop, &dylan]);
-
         let cheyenne_project = {
             let update = IndirectDelegation::try_from_iter(vec![
                 Right(cheyenne_desktop.current().clone()),
@@ -178,6 +176,7 @@ fn revoke_indirect() -> anyhow::Result<()> {
         }?;
         let dylan_project = common::Project::create_from(dylan.clone(), &cheyenne_project)?;
 
+        let heads = current_heads_from(vec![&cheyenne_desktop, &dylan]);
         dylan_project.assert_verifies(lookup(&heads))?;
 
         // Swap lap with palm
@@ -207,8 +206,85 @@ fn revoke_indirect() -> anyhow::Result<()> {
     }
 }
 
-// TODO:
-// * double vote
+#[test]
+fn double_vote() -> anyhow::Result<()> {
+    let repo = common::repo()?;
+    {
+        let cheyenne_desktop = common::Device::new_with(
+            &*CHEYENNE_DESKTOP,
+            Git::new(&repo),
+            payload::User {
+                name: "cheyenne".into(),
+            },
+        )?
+        .update(Some(
+            vec![CHEYENNE_DESKTOP.public(), CHEYENNE_LAPTOP.public()]
+                .into_iter()
+                .collect(),
+        ))?;
+
+        let cheyenne_laptop = common::Device::create_from(&*CHEYENNE_LAPTOP, &cheyenne_desktop)?;
+        let cheyenne_desktop = cheyenne_desktop.update_from(&cheyenne_laptop)?;
+        cheyenne_desktop.assert_verifies()?;
+
+        let dylan = common::Device::new_with(
+            &*DYLAN,
+            Git::new(&repo),
+            payload::User {
+                name: "dylan".into(),
+            },
+        )?;
+
+        let cheyenne_project = {
+            let update = IndirectDelegation::try_from_iter(vec![
+                Right(cheyenne_desktop.current().clone()),
+                Right(dylan.current().clone()),
+            ])?;
+            common::Project::new(cheyenne_desktop.clone())?.update(update)
+        }?;
+        let dylan_project = common::Project::create_from(dylan.clone(), &cheyenne_project)?;
+
+        let heads = current_heads_from(vec![&cheyenne_desktop, &dylan]);
+        dylan_project.assert_verifies(lookup(&heads))?;
+
+        let cheyenne_project = cheyenne_project.update_from(&dylan_project)?.update(
+            IndirectDelegation::try_from_iter(vec![Right(cheyenne_desktop.current().clone())])?,
+        )?;
+        // That doesn't pass parent-quorum
+        assert_matches!(
+            cheyenne_project.verify(lookup(&heads)),
+            Err(error::VerifyProject::Verification(
+                VerificationError::ParentQuorum
+            ))
+        );
+        // Still doesn't pass if we try to confirm on the laptop
+        let cheyenne_project_laptop =
+            common::Project::create_from(cheyenne_laptop, &cheyenne_project)?;
+        assert_matches!(
+            cheyenne_project_laptop.verify(lookup(&heads)),
+            Err(error::VerifyProject::Verification(
+                VerificationError::ParentQuorum
+            ))
+        );
+        // In case dylan confirms anyway, `cheyenne_project_laptop` gets ignored
+        //
+        // FIXME(kim): There is a nice footgun opportunity here: if we merge
+        // `cheyenne_project_laptop`, we'll end up at the previous revision (ie.
+        // `dylan_project` above) because first-parent will just ignore
+        // cheyenne's detour. Not sure if we can fix the `Git` operations to
+        // ensure we don't merge more than one commit from a concurrent lineage.
+        let dylan_project = dylan_project.update_from(&cheyenne_project)?;
+        let dylan_stupid = dylan_project
+            .clone()
+            .update_from(&cheyenne_project_laptop)?;
+        assert_eq!(
+            &dylan_stupid.verify(lookup(&heads))?.into_inner(),
+            dylan_project.current()
+        );
+
+        Ok(())
+    }
+}
 
 fn current_heads_from<'a>(
     devs: impl IntoIterator<Item = &'a common::Device<'a>>,

@@ -178,6 +178,10 @@ impl<'a> Project<'a> {
         Ok(Self { dev, cur })
     }
 
+    pub fn current(&self) -> &super::Project {
+        &self.cur
+    }
+
     pub fn update(
         self,
         delegations: impl Into<Option<IndirectDelegation>>,
