@@ -258,6 +258,10 @@ fn double_vote() -> anyhow::Result<()> {
             ))
         );
         // Still doesn't pass if we try to confirm on the laptop
+        //
+        // XXX(kim): dang, we don't actually reach the `DoubleVote` error,
+        // because `cheyenne_project` errors out first. Dunno how to trigger
+        // this at it level.
         let cheyenne_project_laptop =
             common::Project::create_from(cheyenne_laptop, &cheyenne_project)?;
         assert_matches!(
@@ -274,6 +278,7 @@ fn double_vote() -> anyhow::Result<()> {
         // cheyenne's detour. Not sure if we can fix the `Git` operations to
         // ensure we don't merge more than one commit from a concurrent lineage.
         let dylan_project = dylan_project.update_from(&cheyenne_project)?;
+        dylan_project.assert_verifies(lookup(&heads))?;
         let dylan_stupid = dylan_project
             .clone()
             .update_from(&cheyenne_project_laptop)?;
