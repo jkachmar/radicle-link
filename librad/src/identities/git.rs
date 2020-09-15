@@ -313,7 +313,7 @@ where
             }
         }?;
 
-        println!("action: {:?}", action);
+        //println!("action: {:?}", action);
 
         match action {
             Action::Uptodate => Ok(ours),
@@ -688,11 +688,9 @@ impl<'a> Git<'a, Project> {
         for delegation in current {
             match delegation {
                 Right(id) => {
-                    let latest =
-                        find_latest_head(id.urn()).map_err(error::VerifyProject::Lookup)?;
-                    if let Ok(verified) = self.updated_user(id, latest) {
-                        updated.push(Right(verified.into_inner()))
-                    }
+                    let head = find_latest_head(id.urn()).map_err(error::VerifyProject::Lookup)?;
+                    let verified = self.updated_user(id, head)?;
+                    updated.push(Right(verified.into_inner()))
                 },
 
                 left => updated.push(left),

@@ -15,10 +15,9 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-use anyhow::anyhow;
 use sodiumoxide::crypto::sign::ed25519::Seed;
 
-use super::*;
+use super::{common::*, *};
 use crate::keys::SecretKey;
 
 lazy_static! {
@@ -34,90 +33,6 @@ lazy_static! {
         175, 193, 135, 176, 191, 147, 253, 103, 100, 182, 201, 116, 62, 99, 240, 24, 224, 48, 170,
         34, 124, 181, 132, 3, 192, 82, 110, 111, 22, 22, 113, 200
     ]));
-}
-
-#[derive(Clone)]
-struct Device<'a> {
-    key: &'a SecretKey,
-    git: Git<'a, User>,
-    cur: User,
-}
-
-impl<'a> Device<'a> {
-    fn new(key: &'a SecretKey, git: Git<'a, User>) -> anyhow::Result<Self> {
-        let cur = git.create(
-            payload::User {
-                name: "dylan".into(),
-            }
-            .into(),
-            Some(key.public()).into_iter().collect(),
-            key,
-        )?;
-
-        Ok(Self { key, git, cur })
-    }
-
-    fn create_from(key: &'a SecretKey, other: &Device<'a>) -> anyhow::Result<Self> {
-        let cur = other
-            .git
-            .create_from(Verifying::from(other.cur.clone()).signed()?, key)?;
-        Ok(Self {
-            key,
-            cur,
-            git: Git::new(other.git.repo),
-        })
-    }
-
-    fn update(self, delegations: impl Into<Option<delegation::Direct>>) -> anyhow::Result<Self> {
-        let cur = self.git.update(
-            Verifying::from(self.cur).signed()?,
-            None,
-            delegations,
-            self.key,
-        )?;
-
-        Ok(Self { cur, ..self })
-    }
-
-    fn update_from(self, other: &Device<'a>) -> anyhow::Result<Self> {
-        let cur = self.git.update_from(
-            Verifying::from(self.cur).signed()?,
-            Verifying::from(other.cur.clone()).signed()?,
-            self.key,
-        )?;
-
-        Ok(Self { cur, ..self })
-    }
-
-    fn verify(&self) -> Result<VerifiedUser, error::VerifyUser> {
-        Ok(self.git.verify(*self.cur.content_id)?)
-    }
-
-    fn assert_verifies(&self) -> anyhow::Result<()> {
-        let verified = self.git.verify(*self.cur.content_id)?.into_inner();
-        anyhow::ensure!(
-            verified == self.cur,
-            anyhow!(
-                "verified head `{}` is not current head `{}`",
-                verified.content_id,
-                self.cur.content_id
-            )
-        );
-        Ok(())
-    }
-
-    fn assert_no_quorum(&self) -> anyhow::Result<()> {
-        let quorum = Verifying::from(self.cur.clone()).signed()?.quorum();
-        anyhow::ensure!(
-            matches!(quorum, Err(VerificationError::Quorum)),
-            anyhow!(
-                "expected {} not not reach quorum, instead this happened: {:?}",
-                self.cur.content_id,
-                quorum
-            )
-        );
-        Ok(())
-    }
 }
 
 #[test]
