@@ -280,7 +280,6 @@ where
 
         let our_pk = signer.public_key().into();
 
-        #[derive(Debug)]
         enum Action {
             Uptodate,
             FastFwd,
@@ -312,8 +311,6 @@ where
                 Err(error::Merge::RevisionMismatch)
             }
         }?;
-
-        //println!("action: {:?}", action);
 
         match action {
             Action::Uptodate => Ok(ours),
