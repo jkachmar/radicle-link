@@ -478,10 +478,9 @@ impl<'a> Git<'a, User> {
             version: 0,
             replaces: Some(base.revision),
             payload: payload.unwrap_or_else(|| base.doc.payload.clone()),
-            delegations: delegations
-                .or_else(|| Some(base.doc.delegations.clone()))
-                .map(payload::UserDelegations::from)
-                .unwrap(),
+            delegations: payload::UserDelegations::from(
+                delegations.unwrap_or_else(|| base.doc.delegations.clone()),
+            ),
         };
 
         let revision = {
@@ -627,15 +626,16 @@ impl<'a> Git<'a, Project> {
             return Ok(base.into_inner());
         }
 
+        // FIXME: reorder stuff to avoid cloning
+
         let doc = Doc {
             version: 0,
             replaces: Some(base.revision),
             payload: payload.unwrap_or_else(|| base.doc.payload.clone()),
             delegations: delegations
                 .clone()
-                .or_else(|| Some(base.doc.delegations.clone()))
                 .map(payload::ProjectDelegations::from)
-                .unwrap(),
+                .unwrap_or_else(|| base.doc.delegations.clone().into()),
         };
 
         let root = base.root;
@@ -667,7 +667,7 @@ impl<'a> Git<'a, Project> {
             content_id,
             root,
             revision,
-            doc: doc.second(|_| delegations.unwrap_or(base.into_inner().doc.delegations)),
+            doc: doc.second(|_| delegations.unwrap_or_else(|| base.into_inner().doc.delegations)),
             signatures,
         })
     }
