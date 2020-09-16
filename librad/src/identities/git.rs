@@ -137,7 +137,7 @@ impl<'a, T: 'a> Git<'a, T> {
 
     //// Generic methods ////
 
-    fn get_generic(&self, oid: git2::Oid) -> Result<T, error::Load>
+    pub fn get_generic(&self, oid: git2::Oid) -> Result<T, error::Load>
     where
         T: TryFrom<ByOid<'a>, Error = error::Load>,
     {
