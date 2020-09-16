@@ -17,28 +17,26 @@
 
 use std::collections::BTreeMap;
 
-use sodiumoxide::crypto::sign::ed25519::Seed;
-
 use super::*;
 use crate::keys::SecretKey;
 
 lazy_static! {
-    static ref CHEYENNE_DESKTOP: SecretKey = SecretKey::from_seed(&Seed([
+    static ref CHEYENNE_DESKTOP: SecretKey = SecretKey::from_seed([
         52, 5, 211, 193, 252, 179, 147, 197, 221, 38, 181, 200, 74, 100, 104, 208, 241, 143, 156,
         130, 118, 94, 82, 173, 18, 164, 96, 77, 81, 82, 182, 149
-    ]));
-    static ref CHEYENNE_LAPTOP: SecretKey = SecretKey::from_seed(&Seed([
+    ]);
+    static ref CHEYENNE_LAPTOP: SecretKey = SecretKey::from_seed([
         197, 91, 169, 54, 48, 99, 79, 3, 69, 255, 168, 206, 253, 179, 132, 174, 11, 44, 130, 185,
         181, 169, 203, 221, 41, 75, 222, 216, 113, 131, 19, 240
-    ]));
-    static ref CHEYENNE_PALMTOP: SecretKey = SecretKey::from_seed(&Seed([
+    ]);
+    static ref CHEYENNE_PALMTOP: SecretKey = SecretKey::from_seed([
         210, 223, 197, 162, 13, 216, 81, 37, 28, 172, 247, 158, 217, 134, 126, 46, 155, 121, 206,
         198, 75, 64, 219, 199, 205, 75, 53, 63, 63, 120, 147, 27
-    ]));
-    static ref DYLAN: SecretKey = SecretKey::from_seed(&Seed([
+    ]);
+    static ref DYLAN: SecretKey = SecretKey::from_seed([
         188, 166, 161, 203, 144, 68, 64, 48, 105, 98, 55, 215, 50, 154, 43, 236, 168, 133, 230, 36,
         134, 79, 175, 109, 234, 123, 23, 114, 61, 82, 96, 52
-    ]));
+    ]);
 }
 
 #[test]

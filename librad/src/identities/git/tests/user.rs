@@ -15,24 +15,22 @@
 // You should have received a copy of the GNU General Public License
 // along with this program. If not, see <https://www.gnu.org/licenses/>.
 
-use sodiumoxide::crypto::sign::ed25519::Seed;
-
 use super::{common::*, *};
 use crate::keys::SecretKey;
 
 lazy_static! {
-    static ref DESKTOP: SecretKey = SecretKey::from_seed(&Seed([
+    static ref DESKTOP: SecretKey = SecretKey::from_seed([
         143, 47, 243, 180, 88, 210, 28, 210, 95, 46, 192, 56, 51, 195, 64, 222, 206, 58, 197, 225,
         9, 65, 102, 201, 120, 103, 253, 204, 96, 186, 112, 5
-    ]));
-    static ref LAPTOP: SecretKey = SecretKey::from_seed(&Seed([
+    ]);
+    static ref LAPTOP: SecretKey = SecretKey::from_seed([
         30, 242, 189, 126, 37, 140, 20, 42, 81, 142, 241, 147, 125, 104, 39, 52, 116, 251, 203,
         128, 121, 28, 90, 176, 119, 91, 59, 205, 180, 97, 134, 185
-    ]));
-    static ref PALMTOP: SecretKey = SecretKey::from_seed(&Seed([
+    ]);
+    static ref PALMTOP: SecretKey = SecretKey::from_seed([
         175, 193, 135, 176, 191, 147, 253, 103, 100, 182, 201, 116, 62, 99, 240, 24, 224, 48, 170,
         34, 124, 181, 132, 3, 192, 82, 110, 111, 22, 22, 113, 200
-    ]));
+    ]);
 }
 
 #[test]

@@ -187,7 +187,7 @@ impl<'a> sign::Signer for &'a SecretKey {
     }
 
     async fn sign(&self, data: &[u8]) -> Result<sign::Signature, Self::Error> {
-        let signature = self.sign(data).0;
+        let signature = (*self).sign(data).0;
         Ok(sign::Signature(signature.into()))
     }
 }
